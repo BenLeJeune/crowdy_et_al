@@ -287,10 +287,6 @@ class AlgoStrategy(gamelib.AlgoCore):
             if self.free_sp(game_state, 3): return
             game_state.attempt_upgrade(support_location)
 
-        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
-        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
-        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
-
 
     def free_sp(self, game_state, n):
         return game_state.get_resource(SP) < n + self.sp_locked
