@@ -149,7 +149,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
         turret_binary = turret_heatmaps[unit.player_index][unit.x, unit.y]
 
         # from the heatmap get the list of turrets that are attacking the unit
-        for i, turret in enumerate(turret_arrays[unit.player_index]):
+        for i, turret in enumerate(turret_arrays[1 - unit.player_index]):
             # for each turret, check if the bit is set
             if turret_binary & ( 1 << i ) != 0:
                 # the bit isn't 0 (i.e is 1)
@@ -158,9 +158,11 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                 turret.current_target = unit
 
     # the structures decide which units to damage
-    for unit in (*turret_arrays[0], *turret_arrays[1]):
-        unit.current_target.health -= unit.damage_i
-        MobileUnitWrapper.by_unit[unit].on_damage()
+    for turret in (*turret_arrays[0], *turret_arrays[1]):
+        target = turret.current_target
+        if target:
+            target.health -= turret.damage_i
+            MobileUnitWrapper.by_unit[target].on_damage()
 
     all_units = [*mobile_units, *structures]
 
@@ -368,14 +370,16 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
 
     # create an array of the starting turrets for each player.
     # these will be used to map heatmap values to the turrets using binary indexing.
-    turret_binary_access_array_0 = (unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
+    turret_binary_access_array_0 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
     # these heatmaps display the turrets attacking any tile from the given player's perspective
-    heatmap_0 = get_heatmap(live_map, turret_binary_access_array_0, 0)
 
-    turret_binary_access_array_1 = (unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
+    turret_binary_access_array_1 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
+
+    heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
     heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
 
     i = 0
+
     while mobile_units and not evaluation.truncated:
         gamelib.debug_write(f'Eval {evaluation.value} ({evaluation.__class__}) {i = } {mobile_units=}')
         if i == 0 or i % 5 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
