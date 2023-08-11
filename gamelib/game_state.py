@@ -707,11 +707,19 @@ class GameState:
                 unit.health < 0):
             return target
 
-        target_stationary = unit.stationary
-        target_distance = self.game_map.distance_between_locations([unit.x, unit.y], [attacking_unit.x, attacking_unit.y])
-        target_health = unit.health
-        target_y = unit.y
-        target_x_distance = abs(self.HALF_ARENA - 0.5 - unit.x)
+        if target is None:
+            target = None
+            target_stationary = True
+            target_distance = sys.maxsize
+            target_health = sys.maxsize
+            target_y = self.ARENA_SIZE
+            target_x_distance = 0
+        else:
+            target_stationary = target.stationary
+            target_distance = self.game_map.distance_between_locations([target.x, target.y], [attacking_unit.x, attacking_unit.y])
+            target_health = target.health
+            target_y = target.y
+            target_x_distance = abs(self.HALF_ARENA - 0.5 - target.x)
 
         new_target = False
         unit_stationary = unit.stationary
