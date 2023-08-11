@@ -28,18 +28,11 @@ class Preset:
     initial_walls = [[0, 13], [27, 13], [1, 12], [2, 12], [3, 12], [4, 12], [8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
     initial_turret = [[8, 11]]
 
-    # This doesn't do anything
-    priority = {
-        [[8, 12], [7, 11]]: 1,  # These walls protect the initial turret
-        initial_turret: 2,
-        initial_walls: 3,
-    }
-
     # High risk walls will be repaired with the given weights
     # Will be repaired if health is between 1/n and 1 - 1/n of original.
     walls_to_repair_weights = {
-        [[8, 12], [7, 11]]: 30,
-        initial_walls: 5
+        30: [[8, 12], [7, 11]],
+        5: initial_walls
     }
 
 
@@ -215,12 +208,12 @@ class AlgoStrategy(gamelib.AlgoCore):
 
             sp_available = game_state.get_resource(SP)
             sp_proportion_allocated = 0.4
-            if not self.supports_due is None:
+            if not self.support_due is None:
                 sp_available -= 6
-            self.sp_locked += self.schedule_repair_damage(self, game_state, sp_available * sp_proportion_allocated)
+            self.sp_locked += self.schedule_repair_damage(game_state, sp_available * sp_proportion_allocated)
 
             # the lower priority defences
-            sp_available = game_state.get_resource(SP) - sp_locked
+            sp_available = game_state.get_resource(SP) - self.sp_locked
             self.build_quaternary_defences(game_state, sp_available)
 
             # predict an enemy attack
@@ -302,7 +295,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """Call this function with the SP to spare for repairs on damaged existing units next turn.
         This will consider the 75% refund!"""
         game_map = game_state.game_map
-        if sp_available < 0.99: return
+        if sp_available < 0.99: return 0
         if sp_available > game_state.get_resource(SP):
             gamelib.debug_write('Attempting to use excessive SP to repair damage! Limiting call.')
             sp_available = math.floor(game_state.get_resource(SP))
@@ -316,8 +309,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # loop through structures and decide which order they should be repaired in
         for unit in friendly_structures:
-            for subset in Preset.walls_to_repair_weights.keys():
-                weight = Preset.walls_to_repair_weights[subset]
+            for weight, subset in Preset.walls_to_repair_weights.items():
                 # We don't want to destroy walls that are too high health (wasteful)
                 # or too low health (they might tank a hit)
                 if unit in subset and unit.max_health < unit.health * weight < unit.max_health * weight - unit.max_health:
@@ -327,7 +319,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         for unit, weight in ordered_units:
             unit_cost = unit.cost[unit.upgraded]
             if sp_available < unit_cost:
-                return  # ran out of SP
+                return sp_locked # ran out of SP
             sp_available += unit_cost * 0.75 * unit.health / unit.max_health
             sp_available -= unit_cost
             self.repair_locations.append((unit.unit_type, [unit.x, unit.y]))
@@ -335,10 +327,10 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         return sp_locked
 
-    def execute_repair_damage(self):
+    def execute_repair_damage(self, game_state):
         """Call this function with relatively high priority."""
         for unit_type, location in self.repair_locations:
-            self.attempt_spawn(unit_type, location)
+            game_state.game_map.attempt_spawn(unit_type, location)
 
         self.repair_locations = []
 
@@ -360,9 +352,12 @@ class AlgoStrategy(gamelib.AlgoCore):
                 if wall.unit_type == WALL:
                     wall_remove_location = location
             # we mark this location for deletion
-            game_state.attempt_remove(wall_remove_location)
-            self.support_due = wall_remove_location
-            return 6
+            if wall_remove_location is not None:
+                game_state.attempt_remove(wall_remove_location)
+                self.support_due = wall_remove_location
+                return 6
+            else:
+                return 0
         else:
             return 0
 
