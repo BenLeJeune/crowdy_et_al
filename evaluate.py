@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import numpy as np
 
 
 @dataclass
@@ -8,6 +9,7 @@ class Evaluation:
     points_destroyed = 0  # enemy structure points destroyed
     damage_dealt = 0  # damage dealt, ignoring overflow!
     points_scored = 0
+    truncated = False  # this is true if we stop calculating due to already having calculated this path
 
     def __str__(self):
         return f'<{__class__} {self.value}>'
@@ -20,13 +22,13 @@ class Evaluation:
 class ScoutEvaluation(Evaluation):
     @property
     def value(self):
-        return super().value + self.damage_dealt/60 + self.points_destroyed/2
+        return super().value + self.damage_dealt/128 + self.points_destroyed/2
 
 
 class DemolisherEvaluation(Evaluation):
     @property
     def value(self):
-        return super().value/2 + self.damage_dealt/60 + self.points_destroyed/2
+        return super().value*2 + self.damage_dealt/64 + self.points_destroyed
 
 
 class InterceptorEvaluation(Evaluation):

@@ -614,6 +614,92 @@ class GameState:
                     target_x_distance = unit_x_distance
         return target
 
+    def get_target_alive_(self, attacking_unit, all_units):
+        """Modified to ignore units with negative health (as in engine) & requires unit list. FAST!!
+        Returns target of given unit based on current map of the game board.
+        A Unit can often have many other units in range, and Units that attack do so once each frame.
+
+        Their targeting priority is as follows:
+            Infantry > Nearest Unit > Lowest Health > Lowest Y position > Closest to edge (Highest distance of X from the boards center, 13.5)
+
+        Args:
+            attacking_unit: A GameUnit
+
+        Returns:
+            The GameUnit this unit would choose to attack.
+
+        """
+
+        if not isinstance(attacking_unit, GameUnit):
+            self.warn("Passed a {} to get_target as attacking_unit. Expected a GameUnit.".format(type(attacking_unit)))
+            return
+
+        attacker_location = [attacking_unit.x, attacking_unit.y]
+        # possible_locations = self.game_map.get_locations_in_range(attacker_location, attacking_unit.attackRange)
+        target = None
+        target_stationary = True
+        target_distance = sys.maxsize
+        target_health = sys.maxsize
+        target_y = self.ARENA_SIZE
+        target_x_distance = 0
+
+        possible_units = [unit for unit in all_units
+                          if (((unit.x - attacking_unit.x) ** 2) + ((unit.y - attacking_unit.y) ** 2) < attacking_unit.attackRange)]
+
+        for unit in possible_units:
+            if unit.player_index == attacking_unit.player_index or (
+                    attacking_unit.damage_f == 0 and is_stationary(unit.unit_type)) or (
+                    attacking_unit.damage_i == 0 and not (is_stationary(unit.unit_type))) or (
+                    unit.health < 0):
+                continue
+
+            new_target = False
+            unit_stationary = unit.stationary
+            unit_distance = self.game_map.distance_between_locations([unit.x, unit.y], [attacking_unit.x, attacking_unit.y])
+            unit_health = unit.health
+            unit_y = unit.y
+            unit_x_distance = abs(self.HALF_ARENA - 0.5 - unit.x)
+
+            if target_stationary and not unit_stationary:
+                new_target = True
+            elif not target_stationary and unit_stationary:
+                continue
+
+            if target_distance > unit_distance:
+                new_target = True
+            elif target_distance < unit_distance and not new_target:
+                continue
+
+            if target_health > unit_health:
+                new_target = True
+            elif target_health < unit_health and not new_target:
+                continue
+
+            # Compare height heuristic relative to attacking unit's player index
+            if attacking_unit.player_index == 0:
+                if target_y > unit_y:
+                    new_target = True
+                elif target_y < unit_y and not new_target:
+                    continue
+            else:
+                if target_y < unit_y:
+                    new_target = True
+                elif target_y > unit_y and not new_target:
+                    continue
+
+            if target_x_distance < unit_x_distance:
+                new_target = True
+
+            if new_target:
+                target = unit
+                target_stationary = unit_stationary
+                target_distance = unit_distance
+                target_health = unit_health
+                target_y = unit_y
+                target_x_distance = unit_x_distance
+        return target
+
+
     def get_attackers(self, location, player_index):
         """Gets the stationary units threatening a given location
 

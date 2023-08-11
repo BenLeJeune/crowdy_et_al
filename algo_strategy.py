@@ -517,7 +517,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         # if it would deal a lot, then we fire it.
         demolisher_location = [25, 11]
         demolisher_count = game_state.number_affordable(DEMOLISHER)
-        params = sim.make_simulation(game_state, DEMOLISHER, demolisher_location, 0, demolisher_count)
+        params = sim.make_simulation(game_state, game_state.game_map, None, DEMOLISHER, demolisher_location, 0, demolisher_count)
         if params is not None:
             # we've made a simulation, let's see how much damage it dealt
             evaluation = sim.simulate(*params)

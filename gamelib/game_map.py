@@ -89,8 +89,8 @@ class GameMap:
         
         """
         x, y = location
-        half_board = self.HALF_ARENA
 
+        """half_board = self.HALF_ARENA
         row_size = y + 1
         startx = half_board - row_size
         endx = startx + (2 * row_size) - 1
@@ -101,7 +101,9 @@ class GameMap:
         endx = startx + (2 * row_size) - 1
         bottom_half_check = (y >= self.HALF_ARENA and x >= startx and x <= endx)
 
-        return bottom_half_check or top_half_check
+        return ans, x, y, bottom_half_check or top_half_check"""
+
+        return 13 <= x+y < 42 and -14 <= x-y < 15
 
     def get_edge_locations(self, quadrant_description):
         """Takes in an edge description and returns a list of locations.
@@ -238,3 +240,11 @@ class GameMap:
         """
         if(self.enable_warnings):
             debug_write(message)
+
+    """Added functions indicated with trailing underscore_."""
+
+    def get_map_(self):
+        return self.__map
+
+    def set_map_(self, set_map):
+        self.__map = set_map
