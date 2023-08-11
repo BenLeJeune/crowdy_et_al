@@ -699,6 +699,62 @@ class GameState:
                 target_x_distance = unit_x_distance
         return target
 
+    def get_preferred_target_(self, attacking_unit, target, unit):
+        """target - current target; unit - new potential target to compare against"""
+        if unit.player_index == attacking_unit.player_index or (
+                attacking_unit.damage_f == 0 and is_stationary(unit.unit_type)) or (
+                attacking_unit.damage_i == 0 and not (is_stationary(unit.unit_type))) or (
+                unit.health < 0):
+            return target
+
+        target_stationary = unit.stationary
+        target_distance = self.game_map.distance_between_locations([unit.x, unit.y], [attacking_unit.x, attacking_unit.y])
+        target_health = unit.health
+        target_y = unit.y
+        target_x_distance = abs(self.HALF_ARENA - 0.5 - unit.x)
+
+        new_target = False
+        unit_stationary = unit.stationary
+        unit_distance = self.game_map.distance_between_locations([unit.x, unit.y], [attacking_unit.x, attacking_unit.y])
+        unit_health = unit.health
+        unit_y = unit.y
+        unit_x_distance = abs(self.HALF_ARENA - 0.5 - unit.x)
+
+        if target_stationary and not unit_stationary:
+            new_target = True
+        elif not target_stationary and unit_stationary:
+            return target
+
+        if target_distance > unit_distance:
+            new_target = True
+        elif target_distance < unit_distance and not new_target:
+            return target
+
+        if target_health > unit_health:
+            new_target = True
+        elif target_health < unit_health and not new_target:
+            return target
+
+        # Compare height heuristic relative to attacking unit's player index
+        if attacking_unit.player_index == 0:
+            if target_y > unit_y:
+                new_target = True
+            elif target_y < unit_y and not new_target:
+                return target
+        else:
+            if target_y < unit_y:
+                new_target = True
+            elif target_y > unit_y and not new_target:
+                return target
+
+        if target_x_distance < unit_x_distance:
+            new_target = True
+
+        if new_target:
+            return unit
+        else:
+            return target
+
 
     def get_attackers(self, location, player_index):
         """Gets the stationary units threatening a given location

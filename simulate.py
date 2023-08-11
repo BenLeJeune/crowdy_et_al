@@ -154,8 +154,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
             if turret_binary & ( 1 << i ) != 0:
                 # the bit isn't 0 (i.e is 1)
                 # do the attack logic here
-                # TODO: decide between the last unit and current unit. this code just picks the last unit sp.
-                turret.current_target = unit
+                turret.current_target = state.get_preferred_target_(turret, turret.current_target, unit)
 
     # the structures decide which units to damage
     for turret in (*turret_arrays[0], *turret_arrays[1]):
