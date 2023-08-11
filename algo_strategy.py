@@ -7,6 +7,7 @@ import warnings
 from sys import maxsize
 import json
 import simulate as sim
+import itertools
 
 """
 Most of the algo code you write will be in this file unless you create new
@@ -18,8 +19,28 @@ Advanced strategy tips:
 
   - The GameState.map object can be manually manipulated to create hypothetical 
   board states. Though, we recommended making a copy of the map to preserve 
-  the actual current map state.
+  the actual current map states
 """
+
+# Some tiles only manipulate enemy direction so are excluded from repairs
+
+class Preset:
+    initial_walls = [[0, 13], [27, 13], [1, 12], [2, 12], [3, 12], [4, 12], [8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
+    initial_turret = [[8, 11]]
+
+    # This doesn't do anything
+    priority = {
+        [[8, 12], [7, 11]]: 1,  # These walls protect the initial turret
+        initial_turret: 2,
+        initial_walls: 3,
+    }
+
+    # High risk walls will be repaired with the given weights
+    # Will be repaired if health is between 1/n and 1 - 1/n of original.
+    walls_to_repair_weights = {
+        [[8, 12], [7, 11]]: 30,
+        initial_walls: 5
+    }
 
 
 class AlgoStrategy(gamelib.AlgoCore):
@@ -48,6 +69,9 @@ class AlgoStrategy(gamelib.AlgoCore):
         # This is a good place to do initial setup
         self.scored_on_locations = []
         self.score_locations = []
+        self.repair_locations = []
+
+        ###############################################################
 
         # these are the "types of turns" that the algorithm can make
         global ATTACK_SCOUTS_R, ATTACK_DEMOLISHERS_R, ATTACK_WAIT, ATTACK_SCOUTS_R_PREP, ATTACK_DEMOLISHERS_R_PREP, ATTACK_DEMOLISHERS_L, ATTACK_DEMOLISHERS_L_PREP, ATTACK_SCOUTS_L, ATTACK_SCOUTS_L_PREP
@@ -78,7 +102,12 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         self.enemy_deletions = []
 
+        ###############################################################
+
         sim.initialise((WALL, SUPPORT, TURRET, SCOUT, DEMOLISHER, INTERCEPTOR))
+
+        # stuff after sim.initialise is used in the new version
+        self.support_due = None
 
     def on_turn(self, turn_state):
         """
@@ -92,13 +121,6 @@ class AlgoStrategy(gamelib.AlgoCore):
         gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
         game_state.suppress_warnings(True)  # Comment or remove this line to enable warnings.
 
-        gamelib.debug_write(self.score_locations)
-        gamelib.debug_write(self.scored_on_locations)
-
-        # if our scout rush failed, in the future make them stronger.
-        if self.attack_type == ATTACK_SCOUTS_R and len(self.score_locations) < 4:
-            self.always_strong_scouts = True
-
         # we want to track the enemy's MP
         self.enemy_previous_mp = self.enemy_mp
         self.enemy_mp = game_state.get_resource(MP, 1)
@@ -110,7 +132,40 @@ class AlgoStrategy(gamelib.AlgoCore):
         game_state.submit_turn()
 
     """
-    --- STRATEGY ---
+    --- TURN-BASED STRATEGY ---
+    
+    on turn 1
+        build updated initial defence
+        send 5 scouts
+        
+    on turn 2
+        upgrade second funnel turret
+    
+    if turn between 3-5 and opponent can send 15 scouts
+        (simulate)
+        send interceptor
+    
+    """
+
+    """
+    --- GENERAL STRATEGY ---
+    
+    replace damaged upgraded turrets
+        
+    if no rebuilding required
+        destroys wall, replaces with upgraded support next turn
+        
+    if spending all on scouts will hit
+        scout rush!
+    
+    """
+
+    """
+    --- OPTIMISATION ---
+    
+    scout rush:
+        1. find best starting location for a scout rush
+    
     """
 
     def strategy(self, game_state):
@@ -118,63 +173,68 @@ class AlgoStrategy(gamelib.AlgoCore):
         Taking inspiration from some effective defences we've seen.
         """
 
-        """ -: hardcoded turns 1 and 2 :-"""
+        # on the first turn
+        if game_state.turn_number == 0:
+            # setup the initial defences
+            self.build_initial_defences(game_state)
+            self.small_scout_attack(game_state)
 
-        # if it's the first turn, we stall with interceptors.
-        # if game_state.turn_number == 0:
-        #     self.turn_1_interceptors(game_state)
-
-        # if it's the second turn, we build our initial defences
+        # on the second turn
         if game_state.turn_number == 1:
-            gamelib.debug_write("turn2, building initial defences")
+            # rebuild anything that's been destroyed
+            self.build_initial_defences(game_state)
+            # we build our second wave of defences
+            self.build_secondary_defences(game_state)
+            self.small_scout_attack(game_state)
+
+        # on turns past the second turn
+        if game_state.turn_number >= 2:
+            # amount of sp to save for next turn
+            self.sp_locked = 0
+
+            # first we build the due support
+            # since we don't want holes in our walls
+            self.build_due_support(game_state)
+            # if we have sufficient MP then walls are marked for removal, to be replaced next turn
+            self.mark_walls_for_support_deletion(game_state)
+            # THEN rebuild walls that we deleted last turn for repair
+            self.execute_repair_damage(game_state)
+
+            # rebuild the initial defences that have been destroyed
             self.build_initial_defences(game_state)
 
-            # on the second turn, we test the waters with a demolisher
-            self.attack_type = ATTACK_DEMOLISHERS_R
-            self.demolisher_attack_right(game_state)
 
-        # from the third turn, we start our regular gameplay loop
-        if game_state.turn_number > 1:
+            # build second & tertiary defences
+            self.build_secondary_defences(game_state)
+            self.build_tertiary_defences(game_state)
 
-            """ -: anticipating enemy attacks :- """
+            # starts replacing walls with supports
+            self.sp_locked += self.mark_supports_for_deletion(game_state)
 
-            # first, we anticipate any enemy attacks
-            # this occurs first so our attack type can take into account the spent MP
-            enemy_will_attack = self.predict_enemy_attack(game_state)
-            # if we think the enemy will attack, we send interceptors
-            if enemy_will_attack:
-                # check to see if we think the enemy will attack on the left side
-                enemy_will_attack_left = self.predict_enemy_left_attack(game_state)
-                if enemy_will_attack_left:
-                    # on the left side, we reinforce our defences
-                    self.reinforce_left_side(game_state)
-                else:
-                    # on the right side, we send out interceptors
-                    self.counter_attack_with_interceptors(game_state, right_side=True)
+            # schedule repairs for next turn
 
-            """ -: determining our action this turn :- """
+            sp_available = game_state.get_resource(SP)
+            sp_proportion_allocated = 0.4
+            if not self.supports_due is None:
+                sp_available -= 6
+            self.sp_locked += self.schedule_repair_damage(self, game_state, sp_available * sp_proportion_allocated)
 
-            # now we decide what type of attack we're going to perform
-            self.attack_type = self.determine_attack_type(game_state)
-            gamelib.debug_write(f"Attack type: {self.attack_type}")
+            # the lower priority defences
+            sp_available = game_state.get_resource(SP) - sp_locked
+            self.build_quaternary_defences(game_state, sp_available)
 
-            # before our regular defence maintaining, we adapt to where the enemy has struck
-            self.build_immediate_reactive_defences(game_state)
+            # predict an enemy attack
+            enemy_attack_predicted = self.predict_enemy_attack(game_state)
+            if enemy_attack_predicted:
+                self.counter_attack_with_interceptors(game_state)
 
-            # we maintain our defences
-            # occurs after the attack since the attack type determines which walls we won't build
-            # this handles removing defences as part of the attack / attack prep
-            self.maintain_defences(game_state)
+            # determine if we should send a scout attack
+            scout_rush_success_predicted = self.predict_scout_rush_success(game_state)
+            if scout_rush_success_predicted:
+                self.scout_rush(game_state)
 
-            """ -: performing the attack :- """
 
-            # now we perform the attack
-            if self.attack_type == ATTACK_SCOUTS_R:
-                # make a scout rush on the right
-                self.scout_rush_right(game_state)
-            elif self.attack_type == ATTACK_DEMOLISHERS_R:
-                # make a demolisher attack on the right
-                self.demolisher_attack_right(game_state)
+
 
     """
     --- DEFENCES ---
@@ -184,24 +244,144 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         This is our initial setup
         """
-        # build turrets & walls
+        # initial setup turrets
 
-        # old defensive layout
-        # wall_locations = [[0, 13], [1, 13], [23, 13], [25, 13], [26, 13], [27, 13], [20, 12], [22, 12], [2, 11], [20, 11], [23, 11], [3, 10], [19, 10], [4, 9], [18, 9], [5, 8], [6, 8], [7, 8], [8, 8], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [24, 13]]
-        # turret_locations = [[1, 12], [23, 12]]
+        # spawns
+        game_state.attempt_spawn(WALL, Preset.initial_walls)
+        game_state.attempt_spawn(TURRET, Preset.initial_turret)
+        game_state.attempt_upgrade(Preset.initial_turret)
 
-        # new defensive layout
-        wall_locations = [[0, 13], [1, 13], [2, 13], [3, 13], [23, 13], [24, 13], [25, 13], [26, 13], [27, 13],
-                          [20, 12], [22, 12], [4, 11], [20, 11], [23, 11], [5, 10], [19, 10], [6, 9], [18, 9], [7, 8],
-                          [8, 8], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8]]
-        turret_locations = [[3, 12], [23, 12]]
+    def build_secondary_defences(self, game_state):
+        """
+        Builds secondary defence: 2 walls and a turret near the funnel
+        """
+        wall_locations = [[5, 11], [9, 11]]
+        turret_location = [4, 11]
         game_state.attempt_spawn(WALL, wall_locations)
-        game_state.attempt_spawn(TURRET, turret_locations)
-        # upgraded locations
-        wall_upgrade_location = [24, 13]
-        turret_upgrade_location = [23, 12]
-        game_state.attempt_upgrade([wall_upgrade_location, turret_upgrade_location])
+        game_state.attempt_spawn(TURRET, turret_location)
 
+    def build_tertiary_defence(self, game_state):
+        """
+        Builds tertiary defence: turret & wall on left side
+        """
+        turret_location = [24, 11]
+        wall_location = [24, 12]
+        game_state.attempt_spawn(WALL, wall_location)
+        game_state.attempt_spawn(TURRET, turret_location)
+
+    def build_quaternary_defences(self, game_state, sp_locked=0):
+        """
+        Builds 3 more turrets near the funnel, then supports behind the existing supports
+        """
+
+        turret_locations = [[8, 10], [3, 11], [4, 10]]
+        for turret_location in turret_locations:
+            if self.free_sp(game_state, 4): return
+            game_state.attempt_spawn(TURRET, turret_location)
+            if self.free_sp(game_state, 6): return
+            game_state.attempt_upgrade(turret_location)
+        support_locations = [[13, 7], [14, 7]]
+        for support_location in support_locations:
+            if self.free_sp(game_state, 3): return
+            game_state.attempt_spawn(SUPPORT, support_location)
+            if self.free_sp(game_state, 3): return
+            game_state.attempt_upgrade(support_location)
+
+        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
+        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
+        if self.attempt_function_but_take_into_consideration_the_usage_of_structure_points(...): return
+
+
+    def free_sp(self, game_state, n):
+        return game_state.get_resource(SP) < n + self.sp_locked
+
+    def attempt_function_but_take_into_consideration_the_usage_of_structure_points(self, game_state, function, *args):
+        if self.free_sp(game_state, 4):
+            function(*args)
+            return True
+        else:
+            return False
+
+    def schedule_repair_damage(self, game_state: gamelib.GameState, sp_available=0):
+        """Call this function with the SP to spare for repairs on damaged existing units next turn.
+        This will consider the 75% refund!"""
+        game_map = game_state.game_map
+        if sp_available < 0.99: return
+        if sp_available > game_state.get_resource(SP):
+            gamelib.debug_write('Attempting to use excessive SP to repair damage! Limiting call.')
+            sp_available = math.floor(game_state.get_resource(SP))
+
+        friendly_tile_units = [game_map[(x, y)] for x in range(game_map.ARENA_SIZE) for y in range(game_map.HALF_ARENA)
+                               if game_map.in_arena_bounds((x, y))]
+        friendly_structures = list(itertools.chain.from_iterable(friendly_tile_units))
+
+        sp_locked = 0  # sp that we must assign to repairs next turn
+        units_requiring_repairs = []
+
+        # loop through structures and decide which order they should be repaired in
+        for unit in friendly_structures:
+            for subset in Preset.walls_to_repair_weights.keys():
+                weight = Preset.walls_to_repair_weights[subset]
+                # We don't want to destroy walls that are too high health (wasteful)
+                # or too low health (they might tank a hit)
+                if unit in subset and unit.max_health < unit.health * weight < unit.max_health * weight - unit.max_health:
+                    units_requiring_repairs.append((unit, weight))
+
+        ordered_units = sorted(units_requiring_repairs, key=lambda unit: (unit.health - unit.y) / weight)
+        for unit, weight in ordered_units:
+            unit_cost = unit.cost[unit.upgraded]
+            if sp_available < unit_cost:
+                return  # ran out of SP
+            sp_available += unit_cost * 0.75 * unit.health / unit.max_health
+            sp_available -= unit_cost
+            self.repair_locations.append((unit.unit_type, [unit.x, unit.y]))
+            sp_locked += unit_cost
+
+        return sp_locked
+
+    def execute_repair_damage(self):
+        """Call this function with relatively high priority."""
+        for unit_type, location in self.repair_locations:
+            self.attempt_spawn(unit_type, location)
+
+        self.repair_locations = []
+
+    def mark_walls_for_support_deletion(self, game_state):
+        """
+        Figures out which walls can be marked for deletion to be replaced by supports
+        """
+
+        support_locations = [[15, 8], [14, 8], [13, 8], [12, 8]]
+        # this seems to be a threshold that other algo uses
+        if game_state.get_resource(SP) >= 6:
+            # find the next support
+            wall_remove_location = None
+            for location in support_locations:
+                wall = game_state.contains_stationary_unit(location)
+                if not wall:
+                    continue
+                # if it's a wall, this is the next one to replace
+                if wall.unit_type == WALL:
+                    wall_remove_location = location
+            # we mark this location for deletion
+            game_state.attempt_remove(wall_remove_location)
+            self.support_due = wall_remove_location
+            return 6
+        else:
+            return 0
+
+    def build_due_support(self, game_state):
+        """
+        Builds supports at the location in self.support_due
+        """
+        # we expect there to be only one, but looping just in case
+        if self.support_due:
+            support_location = self.support_due
+            game_state.attempt_spawn(SUPPORT, support_location)
+            game_state.attempt_upgrade(support_location)
+            self.support_due = None
+
+    # OUTDATED
     def build_immediate_reactive_defences(self, game_state):
         """
         Several reactive defences for the algorithm to build based on where they were hit in the previous round.
@@ -258,6 +438,9 @@ class AlgoStrategy(gamelib.AlgoCore):
         if self.attacked_locations[left_corner] > 0:
             self.reinforce_left_side(game_state)
 
+
+
+    # OUTDATED
     def maintain_defences(self, game_state):
         gamelib.debug_write("maintaining defences")
         # the type of attack we'll be performing
@@ -338,6 +521,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             # if the funnel has been closed, re-open it, since we aren't attacking with scouts next turn
             game_state.attempt_remove(funnel_entrance)
 
+    # OUTDATED
     def reinforce_left_side(self, game_state):
         """
         This reinforces the left side by building more walls and turrets
@@ -355,26 +539,40 @@ class AlgoStrategy(gamelib.AlgoCore):
 
     def predict_enemy_attack(self, game_state):
         """
-        Returns true if we think the enemy is going to attack this turn, so we can counter it.
+        We will predict if the enemy is going to attack.
+        todo: later on, remember when the enemy attacks and anticipate?
         """
-        # the number of scouts the enemy can summon this turn
-        enemy_scouts_num = self.enemy_mp // game_state.type_cost(SCOUT)[MP]
+        # we simulate the enemy sending 15 scouts
 
-        # compare to last attack, or 8 if there was no prior attack
-        # todo: also predict enemy demolisher attacks by introducing enemy_demolisher_attack_threshold
-        if self.enemy_scout_attack_threshold is None:
-            # we haven't seen them attack yet
-            # by default we wait until 8 scouts can be spawned
-            if enemy_scouts_num >= 8:
-                return True
-        else:
-            # we have seen them attack
-            # the minimum number they're willing to attack with is in self.enemy_attack_threshold
-            if enemy_scouts_num >= self.enemy_scout_attack_threshold:
-                return True
-        # if neither of these occur, we return false
+        # todo: get an edge location
+        right_edge = game_state.game_map.get_edge_locations(game_state.game_map.TOP_RIGHT)
+        left_edge = game_state.game_map.get_edge_locations(game_state.game_map.TOP_LEFT)
+        edge_locations = [*right_edge, *left_edge]
+
+        no_of_scouts = int(game_state.get_resource(MP, 1) // game_state.type_cost(SCOUT)[MP])
+        for scout_location in edge_locations:
+            # if the location is full, skip
+            if game_state.contains_stationary_unit(scout_location):
+                continue
+            # if the opponent could spawn here, simulate it
+            params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 1, no_of_scouts)
+            if not params is None:
+                evaluation = sim.simulate(*params)
+                # if it exceeds a (slightly arbitrary) damage threshold, send an interceptor
+                if evaluation.damage_dealt >= 4:
+                    return True
+                    # spawns an interceptor at [7, 6]
         return False
 
+    def counter_attack_with_interceptors(self, game_state):
+        """
+        We think the enemy is going to attack, so we send out an interceptor to stop it.
+        """
+        interceptor_location = [7, 6]
+        no_of_interceptors = 1 # todo: make this not always 1
+        game_state.attempt_spawn(INTERCEPTOR, interceptor_location, no_of_interceptors)
+
+    # OUTDATED
     def predict_enemy_left_attack(self, game_state):
         """
         This predicts if the enemy will launch an attack on the left side.
@@ -389,31 +587,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # if they're removing a wall, we assume they are going to attack here next turn.
         return enemy_wall_marked_for_removal
-
-    def counter_attack_with_interceptors(self, game_state, right_side=True):
-        """
-        We think the enemy is going to attack, so we send out an interceptor to stop it.
-        """
-        # todo: make this do something when called on the left side
-        # if we're being attacked on the right side
-        if right_side:
-            # the location to spawn them at
-            interceptor_location = [[18, 4]]
-            # the number to spawn
-            num_interceptors = 0
-
-            # if we haven't seen the enemy attack yet, we don't send any
-            # if we have seen them attack, then we send the number needed to defeat the attack
-            if self.enemy_scout_attack_threshold is None:
-                num_interceptors = 0
-                return
-            else:
-                enemy_scouts_incoming = self.enemy_mp
-                num_interceptors = int(enemy_scouts_incoming // 5)
-
-            # spawning the interceptors
-            game_state.attempt_spawn(INTERCEPTOR, interceptor_location, num_interceptors)
-
+    # OUTDATED
     def turn_1_interceptors(self, game_state):
         interceptor_locations = [[5, 8], [22, 8]]
         game_state.attempt_spawn(INTERCEPTOR, interceptor_locations)
@@ -421,7 +595,7 @@ class AlgoStrategy(gamelib.AlgoCore):
     """
     --- POSITION ANALYSIS ---
     """
-
+    # OUTDATED
     def enemy_side_is_open(self, game_state, left=False):
         """
         Returns true if the enemy's left side is open
@@ -439,7 +613,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 return True
         # if both the walls are there, then it isn't open
         return False
-
+    # OUTDATED
     def strong_scout_attack_needed(self, game_state):
         """"
         Returns whether we need a 'strong' scout attack (6 suicides) or a 'weak' one (2 suicides).
@@ -456,7 +630,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                     if enemy_wall.upgraded:
                         upgraded_walls = True
         return upgraded_walls
-
+    # OUTDATED
     def num_demolishers_needed(self, game_state):
         """
         Returns the number of demolishers that should be used in a scout rush
@@ -476,6 +650,37 @@ class AlgoStrategy(gamelib.AlgoCore):
     --- ATTACKING ---
     """
 
+    def small_scout_attack(self, game_state):
+        """
+        This is called on the first turn to send 5 scouts.
+        """
+        scout_location = [20, 6]
+        game_state.attempt_spawn(SCOUT, scout_location, 26)
+
+    def predict_scout_rush_success(self, game_state):
+        """
+        Returns true if we think a scout rush would be successful, false if it wouldn't be
+        """
+        # simulates the scout attack
+        scout_location = [20, 6]
+        no_of_scouts = game_state.number_affordable(SCOUT)
+        params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
+        if not params is None:
+            evaluation = sim.simulate(*params)
+            # if the damage of a scout rush would exceed a relatively arbitrary threshold, then we fire one.
+            if evaluation.damage_dealt >= 5:
+                return True
+        return False
+
+    def scout_rush(self, game_state):
+        """
+        Performs a scout rush using as many scouts as possible
+        """
+        scout_location = [20, 6]
+        no_of_scouts = game_state.number_affordable(SCOUT)
+        game_state.attempt_spawn(SCOUT, scout_location, no_of_scouts)
+
+    # OUTDATED
     def determine_attack_type(self, game_state):
         """
         Returns either ATTACK_WAITING, ATTACK_SCOUTS, OR ATTACK_DEMOLISHERS
@@ -551,7 +756,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         # if we've made it this far, none of these seem like particularly good options.
         # we'll just wait this turn out and build up some more MP
         return ATTACK_WAIT
-
+    # OUTDATED
     def scout_rush_right(self, game_state):
         """
         We're performing a scout rush
@@ -581,7 +786,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # now that we've prepared the suicide scouts, we send the payload scouts
         game_state.attempt_spawn(SCOUT, scout_payload_location, scouts_affordable - no_of_suicide_scouts)
-
+    # OUTDATED
     def demolisher_attack_right(self, game_state):
         """
         We're performing a demolisher attack
@@ -628,7 +833,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             if not game_state.contains_stationary_unit(location):
                 filtered.append(location)
         return filtered
-
+    # OUTDATED
     def on_action_frame(self, turn_string):
         """
         This is the action frame of the game. This function could be called
