@@ -520,8 +520,9 @@ class AlgoStrategy(gamelib.AlgoCore):
         params = sim.make_simulation(game_state, game_state.game_map, None, DEMOLISHER, demolisher_location, 0, demolisher_count)
         if params is not None:
             # we've made a simulation, let's see how much damage it dealt
-            evaluation = sim.simulate(*params)
-            structure_points = evaluation.points_destroyed
+            # todo: un-break the simulation so we can un-comment this
+            # evaluation = sim.simulate(*params)
+            structure_points = 0 #evaluation.points_destroyed
             # if we destroyed enough structure points worth, then we want to fire this demolisher next turn
             gamelib.debug_write(f"Demolisher would deal {structure_points}")
             if structure_points >= 8:

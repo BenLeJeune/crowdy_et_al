@@ -187,6 +187,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
     for unit in itertools.chain(mobile_units, structures):
         if unit.health <= 0:
             unit.pending_removal = True
+            # also add pending removal in the live map
 
     # delete mobile units - we need to use len
     num_deleted = 0
