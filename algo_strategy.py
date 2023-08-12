@@ -54,7 +54,7 @@ class Preset:
     # walls_to_upgrade = [[8, 12], [2, 4]]
     # walls_to_upgrade_less_important = [[8, 12]]
 
-    right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9]]
+    right_walls_forward = [[25, 13], [26, 13], [24, 13], [23, 11], [22, 10], [21, 9]]
     right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8]]
 
     right_turret_forward = [24, 12]
@@ -395,7 +395,12 @@ class AlgoStrategy(gamelib.AlgoCore):
         # todo: move to Preset
 
         game_state.attempt_upgrade(reinforce_walls)
-        game_state.attempt_spawn(TURRET, turret_location0)
+
+        if not self.right_layout_forward and (self.enemy_strategy[SCOUT_GUN_RIGHT] or self.enemy_strategy[FUNNEL_RIGHT]):
+            game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
+
+        else:
+            game_state.attempt_spawn(TURRET, Preset.right_turret_forward)
 
         return 0
 
