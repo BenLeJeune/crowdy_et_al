@@ -6,12 +6,21 @@ import math
 import warnings
 from sys import maxsize
 import json
+import itertools
 
 import simulate
 import simulate as sim
-import itertools
-
 import dev_helper
+
+IS_DEV_ENABLED = True
+IS_PROFILER_ENABLED = False
+
+if IS_PROFILER_ENABLED:
+    import cProfile as profile  # if not available, replace with 'import profile'
+    import timing_helper
+if not IS_DEV_ENABLED:
+    dev_helper.print_map = dev_helper.print_state = lambda *args: None  # overwrite test functions
+    print = lambda *args, **kwargs: None  # overwrite print as this crashes the engine
 
 """
 Most of the algo code you write will be in this file unless you create new
@@ -41,7 +50,7 @@ class Preset:
     shared_turret = [[8, 11]]
     shared_upgraded_wall = [[8,12]]
 
-    quaternary_turrets = [[4, 11], [8, 10], [9, 10]]
+    quaternary_turrets = [[2, 11], [8, 10], [9, 10]]
     # walls_to_upgrade = [[8, 12], [2, 4]]
     # walls_to_upgrade_less_important = [[8, 12]]
 
@@ -158,6 +167,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         self.enemy_mp = game_state.get_resource(MP, 1)
 
         gamelib.debug_write(f"Enemy has been observed to attack on {self.enemy_scout_attack_threshold}")
+
+        if IS_PROFILER_ENABLED:
+            profile.runctx('self.strategy(game_state)', globals(), locals(),
+                           filename=timing_helper.PROFILING_DIR)
+            breakpoint()
 
         self.strategy(game_state)
 
@@ -368,7 +382,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         turret_location0 = [24,11]
         reinforce_walls = [[0,13],[3,13],[27,13]]
-        turret_location1 = [2, 11]
+        turret_location1 = [4, 11]
         # this turret should be upgraded if the funnel is on the left
 
         if(game_state.attempt_spawn(TURRET,turret_location1) and game_state.get_resource(0,0) <= 6):
@@ -393,10 +407,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             game_state.attempt_spawn(TURRET, Preset.right_turret_forward)
         else:
             game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
-            turret_location = [24, 11]
-            wall_location = [24, 12]
-        game_state.attempt_spawn(WALL, wall_location)
-        game_state.attempt_spawn(TURRET, turret_location)
+            game_state.attempt_spawn(WALL, Preset.right_turret_wall_backward)
 
         return 0
 
