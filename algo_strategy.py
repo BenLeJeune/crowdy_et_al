@@ -60,6 +60,9 @@ class Preset:
     right_turret_forward = [24, 12]
     right_turret_backward = [24, 11]
 
+    right_turret_wall_forward = [24, 13]
+    right_turret_wall_backward = [24, 12]
+
     @staticmethod
     def get_right_walls(strategy):
         return Preset.right_walls_forward
@@ -398,13 +401,14 @@ class AlgoStrategy(gamelib.AlgoCore):
 
     def build_tertiary_defences(self, game_state):
         """
-        Builds tertiary defence: upgrade walls near funnel turret & wall on left side
+        Builds tertiary defence: upgrade walls near funnel turret & wall on right side
         """
         wall_upgrade_locations = [[8, 12], [9, 11]]
         game_state.attempt_spawn(WALL, wall_upgrade_locations)
 
         if self.right_layout_forward:
             game_state.attempt_spawn(TURRET, Preset.right_turret_forward)
+            game_state.attempt_spawn(WALL, Preset.right_turret_wall_forward)
         else:
             game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
             game_state.attempt_spawn(WALL, Preset.right_turret_wall_backward)
