@@ -43,6 +43,8 @@ class Preset:
     # initial_walls = [[27, 13], [0,13], [1, 12], [2, 12], [3, 13], [4,12],[8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
     # initial_turret = [[8, 11]]
 
+    right_cannon_funnel_block = [[2, 12], [3, 12], [5, 12], [6, 11], [7, 10]]
+    right_cannon_funnel_unblock = [[6, 11]]
     right_cannon_plug = [26, 13]
 
     shared_walls = [[27, 13], [0, 13], [4, 13], [8, 12], [1, 12], [2, 12], [3, 12], [7, 11], [7, 10], [8, 9], [9, 8], [10, 8],
@@ -171,10 +173,23 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         gamelib.debug_write(f"Enemy has been observed to attack on {self.enemy_scout_attack_threshold}")
 
-        if IS_PROFILER_ENABLED:
-            profile.runctx('self.strategy(game_state)', globals(), locals(),
-                           filename=timing_helper.PROFILING_DIR)
-            breakpoint()
+        # if IS_PROFILER_ENABLED:
+        #     profile.runctx('self.strategy(game_state)', globals(), locals(),
+        #                    filename=timing_helper.PROFILING_DIR)
+        #     breakpoint()
+
+        pr = profile.Profile()
+        pr.enable()
+
+        self.strategy(game_state)
+
+        pr.disable()
+        s = io.StringIO()
+        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+        ps.print_stats()
+
+        with open('_timing_profile_game_r' + str(game_state.turn_number), 'w+') as f:
+            f.write(s.getvalue())
 
         self.strategy(game_state)
 
@@ -739,11 +754,14 @@ class AlgoStrategy(gamelib.AlgoCore):
         scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
-        best_effort = (0, None)
+        funnel_unblocked_best_effort = (0, None)
+
+        block_left_funnel = False
+
         # todo: predict enemy counterattack?
         for scout_location in scout_spawn_locations:
             # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
-            params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
+            params = sim.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
             if not params is None:
                 # gamelib.debug_write(str(params))
                 evaluation = sim.simulate(*params)
@@ -756,6 +774,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             gamelib.debug_write(f"Scout rush doesn't look worth it. {evaluation.value}")
 
             return False, None
+
 
     def predict_future_scout_gun_success(self, game_state: gamelib.GameState):
         """
@@ -776,14 +795,22 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         best_run = (0, None)
 
+
+        map_parameters = list(simulate.make_simulation_map(game_state,
+                                                      [WALL for _ in range(len(Preset.right_cannon_funnel_block))],
+                                                      Preset.right_cannon_funnel_block, 0,
+                                                      remove_locations=[Preset.right_cannon_plug]))
+        __map = simulate.copy_internal_map(map_parameters[1])
+
         for scout_location in scout_spawn_locations:
-            map_parameters = simulate.make_simulation_map(game_state, [], [], [],  # don't add any new stuff
-                                                          remove_locations=[Preset.right_cannon_plug])
-            params = simulate.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts)
+            params = simulate.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
             if not params is None:
                 evaluation = sim.simulate(*params)
                 if evaluation.value >= best_run[0]:
                     best_run = (evaluation.value, scout_location)
+
+            map_parameters[1].set_map_(__map)
+            map_parameters[2] = None
 
         if best_run[0] >= 10:
             return True

@@ -643,8 +643,8 @@ class GameState:
         target_y = self.ARENA_SIZE
         target_x_distance = 0
 
-        possible_units = [unit for unit in all_units
-                          if (((unit.x - attacking_unit.x) ** 2) + ((unit.y - attacking_unit.y) ** 2) < attacking_unit.attackRange)]
+        # possible_units = [unit for unit in all_units
+        #                   if (((unit.x - attacking_unit.x) ** 2) + ((unit.y - attacking_unit.y) ** 2) < attacking_unit.attackRange ** 2)]
 
         for unit in possible_units:
             if unit.player_index == attacking_unit.player_index or (

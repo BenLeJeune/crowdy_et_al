@@ -286,8 +286,9 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
         initial_map = state.game_map
 
     # Remove units (e.g. friendly walls, enemy walls) at specified locations
-    for location in remove_locations:
-        initial_map.remove_unit(location)
+    if remove_locations is not None:
+        for location in remove_locations:
+            initial_map.remove_unit(location)
 
     # Create additional structures
     for unit_type, location, player_index in itertools.zip_longest(unit_types, locations, player_indexes, fillvalue=0):
