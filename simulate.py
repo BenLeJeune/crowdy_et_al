@@ -71,6 +71,7 @@ def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, eval
                 if target.player_index != player_index:
                     evaluation.damage_dealt += min(target.health, damage)
                     target.health -= damage
+    evaluation.self_destruct_order.append(destruct_unit)
 
 
 def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: evaluate.Evaluation, mobile_units,
@@ -250,7 +251,8 @@ def copy_internal_map(game_map: gamelib.GameMap):
     return copy.deepcopy(game_map.get_map_())
 
 
-def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_indexes=0, copy_safe=True):
+def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_indexes=0, remove_locations=None,
+                        copy_safe=True):
     """Set up a hypothetical map and structure units for simulation.
     Warning: do not modify the state attributes or reassign the game map constants!
 
@@ -258,24 +260,34 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
         unit_types - list or single unit type
         locations - list or single location
         player_indexes - (optional) list or integer. If unset or after this list stops short, default to 0 (player 1).
+        remove_locations - (optional) list of locations to remove.
         copy_safe - (optional) boolean. Set to True to deepcopy.
 
     Returns None if any location is occupied.
     """
     if not isinstance(unit_types, list):
-        unit_types, locations, player_indexes = [unit_types], [locations], [player_indexes]
+        unit_types, locations = [unit_types], [locations]
+    if not isinstance(player_indexes, list):
+        player_indexes = [player_indexes]
+    if remove_locations and isinstance(remove_locations[0], int):
+        remove_locations = [remove_locations]
     if len(locations) != len(unit_types):
         raise ValueError(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
 
     for location in locations:
         # Verify possible locations
         if state.contains_stationary_unit(location):
-            return None
+            gamelib.debug_write('Warning! Stationary unit overwriting existing unit.')
+            # return None
 
     if copy_safe:
         initial_map = copy.deepcopy(state.game_map)
     else:
         initial_map = state.game_map
+
+    # Remove units (e.g. friendly walls, enemy walls) at specified locations
+    for location in remove_locations:
+        initial_map.remove_unit(location)
 
     # Create additional structures
     for unit_type, location, player_index in itertools.zip_longest(unit_types, locations, player_indexes, fillvalue=0):
