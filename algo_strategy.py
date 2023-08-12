@@ -210,9 +210,9 @@ class AlgoStrategy(gamelib.AlgoCore):
 
             # on turn 2, we build defences subtly shifted to counter our opponent
             # rebuild anything that's been destroyed
+
+            # or we would, but there's no changes
             self.build_initial_defences(game_state)
-            # we build our second wave of defences
-            self.build_secondary_defences(game_state)
             self.small_scout_attack(game_state)
 
         # on turns past the second turn
@@ -223,8 +223,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             # first we build the due support
             # since we don't want holes in our walls
             self.build_due_support(game_state)
-            # if we have sufficient MP then walls are marked for removal, to be replaced next turn
-            self.mark_walls_for_support_deletion(game_state)
+
             # THEN rebuild walls that we deleted last turn for repair
             self.execute_repair_damage(game_state)
 
@@ -604,13 +603,16 @@ class AlgoStrategy(gamelib.AlgoCore):
                 strategies[SCOUT_GUN_RIGHT] = True
             else:
                 gamelib.debug_write("strange crossing_x_val value")
-                strategies["unknown"] = True
+                strategies[UNKNOWN] = True
 
         return strategies
 
-    def predict_enemy_build(self):
+    def predict_enemy_build(self, game_state):
+        live_map = game_state.game_map
+        tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
+                      if live_map.in_arena_bounds((x, y))]
+        structures = list(itertools.chain.from_iterable(tile_units))
 
-        pass
 
 
     """
@@ -638,7 +640,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
         
         scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        scout_spawn_locations = [s for s in scout_spawn_locations if game_state.contains_stationary_unit(s)]
+        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
         best_effort = (0, None)
@@ -672,7 +674,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
 
         scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        scout_spawn_locations = [s for s in scout_spawn_locations if game_state.contains_stationary_unit(s)]
+        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
 
         best_run = (0, None)
 
