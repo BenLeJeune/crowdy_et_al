@@ -364,6 +364,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 # so we destroy the back layout
                 game_state.attempt_remove(Preset.right_walls_backward)
                 game_state.attempt_remove(Preset.right_turret_backward)
+                game_state.attempt_remove(Preset.right_turret_wall_backward) # <-- addded this
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
                 self.right_layout_forward = True
             else:
@@ -383,13 +384,13 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         Builds secondary defence: Upgrades stick out wall, stacks turrets
         """
-        turret_location0 = [24,11]
         reinforce_walls = [[0,13],[3,13],[27,13]]
         turret_location1 = [4, 12]
         # this turret should be upgraded if the funnel is on the left
 
         if(game_state.attempt_spawn(TURRET,turret_location1) and game_state.get_resource(0,0) <= 6):
             return 6
+
 
         game_state.attempt_upgrade(turret_location1)
         # todo: move to Preset
