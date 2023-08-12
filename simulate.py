@@ -170,19 +170,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
     for unit in mobile_units:
         target = None
         # Repeat attacks for each unit in the stack, re-targeting if initial target destroyed
-        for i in range(MobileUnitWrapper.by_unit[unit].count):
-            if target is None or target.health <= 0:
-                target = state.get_target_alive_(unit, all_units)
-            if target is None:
-                continue
 
-            if target.stationary:
-                evaluation.damage_dealt += min(target.health, unit.damage_f)
-                target.health -= unit.damage_f
-            else:
-                evaluation.damage_dealt += min(target.health, unit.damage_i)
-                target.health -= unit.damage_i
-                MobileUnitWrapper.by_unit[target].on_damage()
 
     # ======== Units that were reduced below 0 health by self destructing or taking damage are removed. ========
     # mark units for deletion: loop through all mobile units and structures
@@ -218,6 +206,23 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                 raise ValueError(f'Structures list has become desynchronised from game map!\n{(unit, units)}')
             MobileUnitWrapper.update_paths = True
             num_deleted += 1
+
+def attack(state, unit, all_units, evaluation):
+    target = None
+    for i in range(MobileUnitWrapper.by_unit[unit].count):
+        if target is None or target.health <= 0:
+            target = state.get_target_alive_(unit, all_units)
+        if target is None:
+            # there's no targets to target
+            return
+
+        if target.stationary:
+            evaluation.damage_dealt += min(target.health, unit.damage_f)
+            target.health -= unit.damage_f
+        else:
+            evaluation.damage_dealt += min(target.health, unit.damage_i)
+            target.health -= unit.damage_i
+            MobileUnitWrapper.by_unit[target].on_damage()
 
 
 def get_heatmap(live_map, turrets, player_index):
@@ -402,6 +407,7 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
                  (turret_binary_access_array_0, turret_binary_access_array_1), (heatmap_0, heatmap_1), player_index, i)
         i += 1
 
+    gamelib.debug_write('ran for ' + str(i) + ' iterations')
     return evaluation
 
 

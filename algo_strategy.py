@@ -180,18 +180,20 @@ class AlgoStrategy(gamelib.AlgoCore):
         #                    filename=timing_helper.PROFILING_DIR)
         #     breakpoint()
 
-        """pr = profile.Profile()
-        pr.enable()"""
+        if IS_PROFILER_ENABLED:
+            pr = profile.Profile()
+            pr.enable()
 
         self.strategy(game_state)
 
-        """pr.disable()
-        s = io.StringIO()
-        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
-        ps.print_stats()
+        if IS_PROFILER_ENABLED:
+            pr.disable()
+            s = io.StringIO()
+            ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+            ps.print_stats()
 
-        with open('_timing_profile_game_r' + str(game_state.turn_number), 'w+') as f:
-            f.write(s.getvalue())"""
+            with open('_timing_profile_game_r' + str(game_state.turn_number), 'w+') as f:
+                f.write(s.getvalue())
 
         # if vulnerable_to_scout_gun
         # scout_gun_strategy(game_state)
@@ -835,11 +837,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_left_locations = game_map.get_edge_locations(BOTTOM_LEFT)
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
 
-        scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+        # scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
+        # scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+        scout_spawn_locations = [[13, 0], [14, 0]]
 
         best_run = (0, None)
-
 
         map_parameters = list(simulate.make_simulation_map(game_state,
                                                       [WALL for _ in range(len(Preset.right_cannon_funnel_block))],

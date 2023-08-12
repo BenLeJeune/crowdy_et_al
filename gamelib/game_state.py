@@ -647,12 +647,13 @@ class GameState:
         #                   if (((unit.x - attacking_unit.x) ** 2) + ((unit.y - attacking_unit.y) ** 2) < attacking_unit.attackRange ** 2)]
 
         for unit in all_units:
-            if not ((unit.x - attacking_unit.x) ** 2) + ((unit.y - attacking_unit.y) ** 2) < attacking_unit.attackRange ** 2:
-                continue
             if unit.player_index == attacking_unit.player_index or (
                     attacking_unit.damage_f == 0 and is_stationary(unit.unit_type)) or (
                     attacking_unit.damage_i == 0 and not (is_stationary(unit.unit_type))) or (
-                    unit.health < 0):
+                    unit.health < 0) or (
+                    not ((unit.x - attacking_unit.x) * (unit.x - attacking_unit.x)) + ((unit.y - attacking_unit.y) * (
+                            unit.y - attacking_unit.y)) < attacking_unit.attackRange * attacking_unit.attackRange
+                    ):
                 continue
 
             new_target = False
