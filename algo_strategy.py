@@ -254,6 +254,11 @@ class AlgoStrategy(gamelib.AlgoCore):
                 sp_available -= 6
             self.sp_locked += self.schedule_repair_damage(game_state, sp_available * sp_proportion_allocated)
 
+            # todo: maybe intelligently decide whether we need more support or more defense
+
+            # if we have sufficient MP then walls are marked for removal, to be replaced next turn
+            self.mark_walls_for_support_deletion(game_state)
+
             # the lower priority defences
             # for all lower priority defenses like quaternary we consider saving the SP instead of building them
             sp_available = game_state.get_resource(SP) - self.sp_locked
@@ -265,9 +270,9 @@ class AlgoStrategy(gamelib.AlgoCore):
                 self.counter_attack_with_interceptors(game_state)
 
             # determine if we should send a scout attack
-            scout_rush_success_predicted = self.predict_scout_rush_success(game_state)
+            scout_rush_success_predicted, best_location = self.predict_scout_rush_success(game_state)
             if scout_rush_success_predicted:
-                self.scout_rush(game_state)
+                self.scout_rush(game_state, best_location)
                 self.prepared_to_attack = False
             else:
                 # rebuild the plug
@@ -277,7 +282,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             scout_gun_success_predicted = self.predict_future_scout_gun_success(game_state)
             if scout_gun_success_predicted:
                 self.prepared_to_attack = True
-                self.prepare_for_scout_gun(game_state)
+                self.prepare_for_scout_gun(game_state, left=False)
 
 
     """
@@ -649,15 +654,17 @@ class AlgoStrategy(gamelib.AlgoCore):
             # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
             params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
             if not params is None:
-                gamelib.debug_write(str(params))
+                # gamelib.debug_write(str(params))
                 evaluation = sim.simulate(*params)
                 if evaluation.value >= best_effort[0]:
                     best_effort = (evaluation.value, scout_location)
             # if the damage of a scout rush would exceed a relatively arbitrary threshold, then we fire one.
-        if best_effort[0]>= 10:
-            return True
+        if best_effort[0] >= 10:
+            return True, best_effort[1]
         else:
-            return False
+            gamelib.debug_write(f"Scout rush doesn't look worth it. {evaluation.value}")
+
+            return False, None
 
     def predict_future_scout_gun_success(self, game_state: gamelib.GameState):
         """
@@ -692,27 +699,26 @@ class AlgoStrategy(gamelib.AlgoCore):
         else:
             return False
 
-    def scout_rush(self, game_state):
+    def scout_rush(self, game_state, scout_location):
         """
         Performs a scout rush using as many scouts as possible
         """
 
-        bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
-        scout_spawn_locations = [*bottom_left, bottom_right]
-        scout_spawn_locations = [s for s in scout_spawn_locations if game_state.contains_stationary_unit(s)]
+        # bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
+        # scout_spawn_locations = [*bottom_left, bottom_right]
+        # scout_spawn_locations = [s for s in scout_spawn_locations if game_state.contains_stationary_unit(s)]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
 
-        best_effort = (0, None)
-        for scout_location in scout_spawn_locations:
-            # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
-            params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
-            if not params is None:
-                evaluation = sim.simulate(*params)
-                if evaluation.value >= best_effort[0]:
-                    best_effort = (evaluation.value, scout_location)
-        if best_effort[1] is not None:
-            game_state.attempt_spawn(SCOUT, best_effort[1], no_of_scouts)
+        # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
+        params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
+        if not params is None:
+            evaluation = sim.simulate(*params)
+            if evaluation.value >= 10:
+                gamelib.debug_write(f"Spawed f{no_of_scouts} scouts")
+                game_state.attempt_spawn(SCOUT, scout_location, no_of_scouts)
+            else:
+                gamelib.debug_write(f"Scout rush wasn't good enough, weird. Only scored {evaluation.value}")
 
     def prepare_for_scout_gun(self, game_state, left):
         entrance_location = [26, 13]
