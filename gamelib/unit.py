@@ -87,3 +87,5 @@ class GameUnit:
     def __repr__(self):
         return self.__toString()
 
+
+    # replace .unit_type with [UNIT_TYPE]

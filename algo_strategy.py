@@ -11,6 +11,8 @@ import itertools
 import simulate
 import simulate as sim
 import dev_helper
+import io
+import pstats
 
 IS_DEV_ENABLED = True
 IS_PROFILER_ENABLED = False
@@ -191,7 +193,6 @@ class AlgoStrategy(gamelib.AlgoCore):
         with open('_timing_profile_game_r' + str(game_state.turn_number), 'w+') as f:
             f.write(s.getvalue())
 
-        self.strategy(game_state)
 
         # if vulnerable_to_scout_gun
         # scout_gun_strategy(game_state)
@@ -322,14 +323,22 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.build_quaternary_defences(game_state, sp_available)
 
             # predict an enemy attack
-            enemy_attack_value = self.predict_enemy_attack(game_state)
-            if enemy_attack_value is not None and enemy_attack_value >= DEFEND_WITH_INTERCEPTORS_THRESHOLD:
-                self.counter_attack_with_interceptors(game_state)
+            # enemy_attack_value = self.predict_enemy_attack(game_state)
+            # if enemy_attack_value is not None and enemy_attack_value >= DEFEND_WITH_INTERCEPTORS_THRESHOLD:
+            #     self.counter_attack_with_interceptors(game_state)
 
             # determine if we should send a scout attack
-            scout_rush_success_predicted, best_location = self.predict_scout_rush_success(game_state)
+            scout_rush_success_predicted, best_location, block_funnel = self.predict_scout_rush_success(game_state)
             if scout_rush_success_predicted:
-                self.scout_rush(game_state, best_location)
+                if block_funnel:
+                    funnel_successfully_blocked = game_state.attempt_spawn(WALL, Preset.right_cannon_funnel_block)
+                    game_state.attempt_remove(Preset.right_cannon_funnel_unblock)
+                    if funnel_successfully_blocked:
+                        self.scout_rush(game_state, best_location)
+                    else:
+                        gamelib.debug_write('Not properly blocked the funnel on the left so not scout rushing.')
+                else:
+                    self.scout_rush(game_state, best_location)
                 self.prepared_to_attack = False
             else:
                 # rebuild the plug
@@ -608,6 +617,13 @@ class AlgoStrategy(gamelib.AlgoCore):
         interceptor_location = [7, 6]
         game_state.attempt_spawn(INTERCEPTOR, interceptor_location, count)
 
+    def simulate_friendly_scouts(self, game_state):
+        """
+        Returns the best position to attack from, the value of that attack,
+        and whether or not the funnel should be closed for it
+        """
+
+
     """
     --- POSITION ANALYSIS ---
     """
@@ -750,8 +766,10 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_left_locations = game_map.get_edge_locations(BOTTOM_LEFT)
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
         
-        scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+        # scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
+        # scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+
+        scout_spawn_locations = [[13, 0], [14, 0]]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
         funnel_unblocked_best_effort = (0, None)
@@ -759,21 +777,49 @@ class AlgoStrategy(gamelib.AlgoCore):
         block_left_funnel = False
 
         # todo: predict enemy counterattack?
+        # these are without blocking the funnel
+        map_parameters = list(simulate.make_simulation_map(game_state, WALL, Preset.right_cannon_plug))
+        __map = simulate.copy_internal_map(map_parameters[1])
+
         for scout_location in scout_spawn_locations:
             # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
             params = sim.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
             if not params is None:
                 # gamelib.debug_write(str(params))
                 evaluation = sim.simulate(*params)
-                if evaluation.value >= best_effort[0]:
-                    best_effort = (evaluation.value, scout_location)
+                if evaluation.value >= funnel_unblocked_best_effort[0]:
+                    funnel_unblocked_best_effort = (evaluation.value, scout_location)
+            # reset the map for the next simulation
+            map_parameters[1].set_map_(__map)
+            map_parameters[2] = None
             # if the damage of a scout rush would exceed a relatively arbitrary threshold, then we fire one.
+
+        funnel_best_effort = (0, None)
+
+        map_parameters = list(simulate.make_simulation_map(game_state, [WALL for _ in range(len(Preset.right_cannon_funnel_block))],
+                                                           Preset.right_cannon_funnel_block))
+        __map = simulate.copy_internal_map(map_parameters[1])
+
+        # these are with blocking the funnel
+        for scout_location in scout_spawn_locations:
+            params = simulate.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
+            if not params is None:
+                # gamelib.debug_write(str(params))
+                evaluation = sim.simulate(*params)
+                if evaluation.value >= funnel_best_effort[0]:
+                    funnel_best_effort = (evaluation.value, scout_location)
+            # reset the map for the next simulation
+            map_parameters[1].set_map_(__map)
+            map_parameters[2] = None
+
+        block_funnel = funnel_best_effort[0] >= funnel_unblocked_best_effort[0]
+        best_effort = funnel_best_effort if block_funnel else funnel_unblocked_best_effort
         if best_effort[0] >= ATTACK_THRESHOLD:
-            return True, best_effort[1]
+            return True, best_effort[1], block_funnel
         else:
             gamelib.debug_write(f"Scout rush doesn't look worth it. {evaluation.value}")
 
-            return False, None
+            return False, None, False
 
 
     def predict_future_scout_gun_success(self, game_state: gamelib.GameState):
