@@ -30,20 +30,18 @@ Advanced strategy tips:
 
 
 class Preset:
-    # Ben's asymmetric updated defense
-    initial_walls = [[0, 13], [27, 13], [1, 12], [2, 12], [3, 12], [4, 12], [8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
-    initial_turret = [[8, 11]]
+    # Ben's asymmetric updated defense - NOT USED
+    # initial_walls = [[27, 13], [0,13], [1, 12], [2, 12], [3, 13], [4,12],[8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
+    # initial_turret = [[8, 11]]
 
     right_cannon_plug = [26, 13]
 
-    shared_walls = [[1, 12], [4, 12], [8, 12], [2, 11], [3, 11], [5, 11], [7, 11], [7, 10], [8, 9], [9, 8], [10, 8],
+    shared_walls = [[27, 13], [0, 13], [3, 13], [8, 12], [1, 12], [2, 12], [4, 12], [7, 11], [7, 10], [8, 9], [9, 8], [10, 8],
                     [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8]]
     shared_turret = [[8, 11]]
+    shared_upgraded_wall = [[8,12]]
 
-    quaternary_turrets = [[3, 12], [4, 11], [8, 10], [9, 10]]
-
-    # Walls that seem to take the bulk of the damage early game and should be upgraded with haste.
-    upgrade_order = [[8,12],[4,12]]
+    quaternary_turrets = [[4, 11], [8, 10], [9, 10]]
     # walls_to_upgrade = [[8, 12], [2, 4]]
     # walls_to_upgrade_less_important = [[8, 12]]
 
@@ -197,6 +195,8 @@ class AlgoStrategy(gamelib.AlgoCore):
     if spending all on scouts will hit
         scout rush!
     
+    NOTE: Scout cannon mechanism a bit weird with new defence formation, i don't understand it but someone who does pls fix.
+    
     """
 
     """
@@ -346,14 +346,22 @@ class AlgoStrategy(gamelib.AlgoCore):
             game_state.attempt_spawn(WALL, Preset.right_walls_backward)
             self.right_layout_forward = False
 
-        if self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT]:
-            game_state.attempt_build(WALL, Preset.right_cannon_plug)
-
+        if new_right_layout:
+            game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
 
     def build_secondary_defences(self, game_state):
         """
         Builds secondary defence: Upgrades stick out wall, stacks turrets
         """
+        turret_location0 = [24,11]
+        reinforce_walls = [[0,13],[3,13],[27,13]]
+        turret_location1 = [3, 12]
+        # this turret should be upgraded if the funnel is on the left
+
+        if(game_state.attempt_spawn(TURRET,turret_location1) and game_state.get_resource(0,0) <= 6):
+            return 6
+
+        game_state.attempt_upgrade(turret_location1)
         # todo: move to Preset
 
         game_state.attempt_upgrade(reinforce_walls)
@@ -480,6 +488,10 @@ class AlgoStrategy(gamelib.AlgoCore):
                 return 0
         else:
             return 0
+
+    """
+    todo: do the same for turrets (when loaded, make sure to allocate turrets vs shields carefully)
+    """
 
     def build_due_support(self, game_state):
         """
