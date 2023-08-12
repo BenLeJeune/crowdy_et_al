@@ -36,7 +36,7 @@ class Preset:
 
     right_cannon_plug = [26, 13]
 
-    shared_walls = [[27, 13], [0, 13], [3, 13], [8, 12], [1, 12], [2, 12], [4, 12], [7, 11], [7, 10], [8, 9], [9, 8], [10, 8],
+    shared_walls = [[27, 13], [0, 13], [4, 13], [8, 12], [1, 12], [2, 12], [3, 12], [7, 11], [7, 10], [8, 9], [9, 8], [10, 8],
                     [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8]]
     shared_turret = [[8, 11]]
     shared_upgraded_wall = [[8,12]]
@@ -60,7 +60,8 @@ class Preset:
     # Will be repaired if health is between 1/n and 1 - 1/n of original.
     # You can repeat walls in this dictionary - it'll take the first occurrence.
     walls_to_repair_weights = {
-        30: [[8, 12], [4,12]],
+        30: [[0, 13], [27, 13]],
+        15: [[4, 13]],
         8: right_cannon_plug,
         7: right_walls_forward,
         6: right_walls_backward,
@@ -328,19 +329,24 @@ class AlgoStrategy(gamelib.AlgoCore):
         game_state.attempt_upgrade(Preset.shared_upgraded_wall)
 
         # if they don't have a funnel on the right, so we build the right more forward to turn into a scout cannon
-        new_right_layout = self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT]
+        new_right_layout = self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT] and (
+            game_state.turn_number > 8 and self.sp_current(game_state) > 6)
 
         # todo: potentially stop having the scout cannon if it gets wrecked a lot
         # = Preset.get_right_walls(self.strategy)
         if new_right_layout or self.right_layout_forward:
             if self.right_layout_forward is None:
+                # we haven't built any walls but a right cannon would be effective
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
                 self.right_layout_forward = True
             elif self.right_layout_forward is False:
+                # we have built the layout at the back but a right cannon would be effective
+                # so we destroy the back layout
                 game_state.attempt_remove(Preset.right_walls_backward)
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
                 self.right_layout_forward = True
             else:
+                # building the back
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
         else:
             game_state.attempt_spawn(WALL, Preset.right_walls_backward)
@@ -355,7 +361,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         turret_location0 = [24,11]
         reinforce_walls = [[0,13],[3,13],[27,13]]
-        turret_location1 = [3, 12]
+        turret_location1 = [2, 11]
         # this turret should be upgraded if the funnel is on the left
 
         if(game_state.attempt_spawn(TURRET,turret_location1) and game_state.get_resource(0,0) <= 6):
