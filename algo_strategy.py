@@ -122,6 +122,10 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         self.strategy(game_state)
 
+        # if vulnerable_to_scout_gun
+        # scout_gun_strategy(game_state)
+
+
         game_state.submit_turn()
 
     """
@@ -137,6 +141,10 @@ class AlgoStrategy(gamelib.AlgoCore):
     if turn between 3-5 and opponent can send 15 scouts
         (simulate)
         send interceptor
+    
+    RUSH IDEA:
+    
+    use demo to break open thin walling around scout gun and then divert scouts from enemy funnel to opening.
     
     """
 
@@ -249,14 +257,18 @@ class AlgoStrategy(gamelib.AlgoCore):
         Builds secondary defence: 2 walls and a turret near the funnel
         """
         wall_locations = [[5, 11], [9, 11]]
+        # todo: this turret should be upgraded if the funnel is on the left
         turret_location = [4, 11]
         game_state.attempt_spawn(WALL, wall_locations)
         game_state.attempt_spawn(TURRET, turret_location)
 
     def build_tertiary_defences(self, game_state):
         """
-        Builds tertiary defence: turret & wall on left side
+        Builds tertiary defence: upgrade walls near funnel turret & wall on left side
         """
+        wall_upgrade_locations = [[8, 12], [9, 11]]
+        game_state.attempt(wall_upgrade_locations)
+
         turret_location = [24, 11]
         wall_location = [24, 12]
         game_state.attempt_spawn(WALL, wall_location)
@@ -264,7 +276,8 @@ class AlgoStrategy(gamelib.AlgoCore):
 
     def build_quaternary_defences(self, game_state, sp_locked=0):
         """
-        Builds 3 more turrets near the funnel, then supports behind the existing supports
+        Builds 3 more turrets near the funnel, then supports behind the existing supports.
+        Then, builds a bunch more turrets near the back
         """
 
         turret_locations = [[8, 10], [3, 11], [4, 10]]
@@ -279,6 +292,12 @@ class AlgoStrategy(gamelib.AlgoCore):
             game_state.attempt_spawn(SUPPORT, support_location)
             if self.free_sp(game_state, 3): return
             game_state.attempt_upgrade(support_location)
+        extra_turret_locations = [[24, 17], [23, 18], [20, 18], [22, 18], [19, 19], [22, 19]]
+        for extra_turret_location in extra_turret_locations:
+            if self.free_sp(game_state, 4): return
+            game_state.attempt_spawn(TURRET, extra_turret_location)
+            if self.free_sp(game_state, 6): return
+            game_state.attempt_upgrade(extra_turret_location)
 
 
     def free_sp(self, game_state, n):
@@ -586,56 +605,98 @@ class AlgoStrategy(gamelib.AlgoCore):
     """
     --- POSITION ANALYSIS ---
     """
-    # OUTDATED
-    def enemy_side_is_open(self, game_state, left=False):
-        """
-        Returns true if the enemy's left side is open
-        """
-        wall_locations = []
-        if left:
-            wall_locations = [[1, 14], [2, 14]]
-        else:
-            wall_locations = [[25, 14], [26, 14]]
 
-        for location in wall_locations:
-            wall = game_state.contains_stationary_unit(location)
-            # if there isn't a wall, then the enemy has opened up their left
-            if not wall:
-                return True
-        # if both the walls are there, then it isn't open
-        return False
-    # OUTDATED
-    def strong_scout_attack_needed(self, game_state):
-        """"
-        Returns whether we need a 'strong' scout attack (6 suicides) or a 'weak' one (2 suicides).
-        This is true if the enemy's defensive wall is upgraded, false otherwise.
+    def get_enemy_contiguous_defence(self, game_state, starting_location):
         """
-        if self.always_strong_scouts:
-            return True
-        enemy_near_wall_locations = [[25, 14], [26, 14], [27, 14]]
-        upgraded_walls = False
-        for location in enemy_near_wall_locations:
-            enemy_wall = game_state.contains_stationary_unit(location)
-            if enemy_wall:
-                if enemy_wall.unit_type == WALL or enemy_wall:
-                    if enemy_wall.upgraded:
-                        upgraded_walls = True
-        return upgraded_walls
-    # OUTDATED
-    def num_demolishers_needed(self, game_state):
+        Returns contiguous stationary units surrounding an initial location
         """
-        Returns the number of demolishers that should be used in a scout rush
+        contiguous_defence_queue = [starting_location]
+        queue_index = 0
+        # we use a queue to find every connected defence
+        while queue_index < len(contiguous_defence_queue):
+            location_x, location_y = contiguous_defence_queue[queue_index]
+            for i in range(-1, 1):
+                for j in range(-1, 1):
+                    if i == j == 0:
+                        continue
+                    checking_location = [location_x + i, location_y + j]
+                    # if this unit hasn't been added already
+                    unit = game_state.contains_stationary_unit(checking_location)
+                    if unit is None:
+                        continue
+                    if unit.player_index == 1:
+                        # if there's a defence here, and it isn't in the queue, add it
+                        if not checking_location in contiguous_defence_queue:
+                            contiguous_defence_queue.append(checking_location)
+            queue_index += 1
+        return contiguous_defence_queue
+
+    # def get_enemy_defence_openings(self, game_state):
+    #     """
+    #     Returns a list of x-values of gaps in the enemy's structures
+    #     """
+    #     # self start on the left corner
+    #     left_corner = [0, 14]
+    #     x_reached = 0
+    #     # we start at 0 and traverse across the board
+    #     while x_reached
+
+    def detect_enemy_strategies(self, game_state):
         """
-        breach_location = [26, 13]
-        attackers = game_state.get_attackers(breach_location, 0)
-        num_turrets = 0
-        num_upgraded_turrets = 0
-        for unit in attackers:
-            if unit.unit_type == TURRET:
-                num_turrets += 1
-                if unit.upgraded:
-                    num_upgraded_turrets += 1
-        return num_upgraded_turrets * 2 + ( (num_turrets - num_upgraded_turrets) // 2 )
+        Detects enemy funnel
+        """
+
+        strategies = {
+            "funnel_left": False,
+            "funnel_right": False,
+            "scout_gun_left": False,
+            "scout_gun_right": False
+        }
+
+        # first we simulate a path from the furthest forward left left location
+        top_left, top_right = game_state.game_map.TOP_LEFT, game_state.game_map.TOP_RIGHT
+        bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
+
+        def get_crossing_x_val(given_path):
+            for location in given_path:
+                # if it's crossed over to our side
+                if location[1] < 14:
+                    return location[1]
+            return None
+
+        # left edges
+        left_edges = game_state.game_map.get_edge_locations(top_left)
+        right_edges = game_state.game_map.get_edge_locations(top_right)
+
+        edges = [*left_edges, right_edges]
+        crossing_x_vals = []
+
+        for edge in edges:
+            if not game_state.contains_stationary_unit(edge):
+                destination = bottom_left
+                # if this was placed on the left, the destination will be bottom right
+                if edge[0] <= 13:
+                    destination = bottom_right
+
+                unit_path = game_state.find_path_to_edge(edge, destination)
+                crossing_x_val = get_crossing_x_val(unit_path)
+                crossing_x_vals.append(crossing_x_val)
+
+        for crossing_x_val in crossing_x_vals:
+            if 0 < crossing_x_val <= 3:
+                strategies["scout_gun_left"] = True
+            elif 3 < crossing_x_val <= 13:
+                strategies["funnel_left"] = True
+            elif 13 < crossing_x_val <= 23:
+                strategies["funnel_right"] = True
+            elif 23 < crossing_x_val <= 27:
+                strategies["scout_gun_rght"] = True
+            else:
+                gamelib.debug_write("strange crossing_x_val value")
+
+                strategies["scout_gun_right"] = True
+
+        return strategies
 
     """
     --- ATTACKING ---
@@ -655,11 +716,13 @@ class AlgoStrategy(gamelib.AlgoCore):
         # simulates the scout attack
         scout_location = [20, 6]
         no_of_scouts = game_state.number_affordable(SCOUT)
+        # todo: predict enemy counterattack?
+        # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
         params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
         if not params is None:
             evaluation = sim.simulate(*params)
             # if the damage of a scout rush would exceed a relatively arbitrary threshold, then we fire one.
-            if evaluation.damage_dealt >= 5:
+            if evaluation.value >= 10:
                 return True
         return False
 

@@ -22,7 +22,7 @@ class Evaluation:
 class ScoutEvaluation(Evaluation):
     @property
     def value(self):
-        return super().value + self.damage_dealt/128 + self.points_destroyed/2
+        return super().value + self.damage_dealt/320 + self.points_destroyed/5
 
 
 class DemolisherEvaluation(Evaluation):
