@@ -814,6 +814,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             map_parameters[2] = None
 
         block_funnel = funnel_best_effort[0] >= funnel_unblocked_best_effort[0]
+        # gamelib.debug_write(f"funnel best effort {}")
         best_effort = funnel_best_effort if block_funnel else funnel_unblocked_best_effort
         if best_effort[0] >= ATTACK_THRESHOLD:
             return True, best_effort[1], block_funnel
