@@ -202,7 +202,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.build_tertiary_defences(game_state)
 
             # starts replacing walls with supports
-            self.sp_locked += self.mark_supports_for_deletion(game_state)
+            self.sp_locked += self.mark_walls_for_support_deletion(game_state)
 
             # schedule repairs for next turn
 
@@ -253,7 +253,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         game_state.attempt_spawn(WALL, wall_locations)
         game_state.attempt_spawn(TURRET, turret_location)
 
-    def build_tertiary_defence(self, game_state):
+    def build_tertiary_defences(self, game_state):
         """
         Builds tertiary defence: turret & wall on left side
         """
