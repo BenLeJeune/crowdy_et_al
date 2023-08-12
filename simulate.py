@@ -168,7 +168,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
 
     # the mobile units deal damage to structures and units
     for unit in mobile_units:
-        target = None
+        attack(state,unit,all_units,evaluation)
         # Repeat attacks for each unit in the stack, re-targeting if initial target destroyed
 
 
