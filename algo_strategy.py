@@ -9,6 +9,8 @@ import json
 import simulate as sim
 import itertools
 
+import dev_helper
+
 """
 Most of the algo code you write will be in this file unless you create new
 modules yourself. Start by modifying the 'on_turn' function.
@@ -114,6 +116,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
         game_state.suppress_warnings(True)  # Comment or remove this line to enable warnings.
 
+        dev_helper.print_state(game_state, gamelib.debug_write)
+
         # we want to track the enemy's MP
         self.enemy_previous_mp = self.enemy_mp
         self.enemy_mp = game_state.get_resource(MP, 1)
@@ -124,7 +128,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # if vulnerable_to_scout_gun
         # scout_gun_strategy(game_state)
-
+        gamelib.debug_write(str(self.detect_enemy_strategies(game_state)))
 
         game_state.submit_turn()
 
@@ -267,7 +271,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         Builds tertiary defence: upgrade walls near funnel turret & wall on left side
         """
         wall_upgrade_locations = [[8, 12], [9, 11]]
-        game_state.attempt_spawn(wall_upgrade_locations)
+        game_state.attempt_spawn(WALL, wall_upgrade_locations)
 
         turret_location = [24, 11]
         wall_location = [24, 12]
@@ -650,7 +654,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             "funnel_left": False,
             "funnel_right": False,
             "scout_gun_left": False,
-            "scout_gun_right": False
+            "scout_gun_right": False,
+            "unknown": False
         }
 
         # first we simulate a path from the furthest forward left left location
@@ -658,9 +663,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
 
         def get_crossing_x_val(given_path):
-            for location in given_path:
-                # if it's crossed over to our side
-                if location[1] < 14:
+            if len(given_path) < 2:  # nonsense send that self-destructs for no damage
+                return None
+            for location in given_path[2:]:
+                # if it's crossed over to our side (or close enough)
+                if location[1] <= 14:
                     return location[1]
             return None
 
@@ -668,7 +675,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         left_edges = game_state.game_map.get_edge_locations(top_left)
         right_edges = game_state.game_map.get_edge_locations(top_right)
 
-        edges = [*left_edges, right_edges]
+        edges = [*left_edges, *right_edges]
         crossing_x_vals = []
 
         for edge in edges:
@@ -680,7 +687,8 @@ class AlgoStrategy(gamelib.AlgoCore):
 
                 unit_path = game_state.find_path_to_edge(edge, destination)
                 crossing_x_val = get_crossing_x_val(unit_path)
-                crossing_x_vals.append(crossing_x_val)
+                if crossing_x_val is not None:
+                    crossing_x_vals.append(crossing_x_val)
 
         for crossing_x_val in crossing_x_vals:
             if 0 < crossing_x_val <= 3:
@@ -690,11 +698,10 @@ class AlgoStrategy(gamelib.AlgoCore):
             elif 13 < crossing_x_val <= 23:
                 strategies["funnel_right"] = True
             elif 23 < crossing_x_val <= 27:
-                strategies["scout_gun_rght"] = True
+                strategies["scout_gun_right"] = True
             else:
                 gamelib.debug_write("strange crossing_x_val value")
-
-                strategies["scout_gun_right"] = True
+                strategies["unknown"] = True
 
         return strategies
 

@@ -25,12 +25,12 @@ _SHORTER_CODES = {'FF': 'O ', 'DF': 'X ', 'EF': '# ',
                   'PI': 'Sc', 'EI': 'De', 'SI': 'In'}
 
 
-def print_state(game_state: gamelib.GameState, _print_function) -> None:
+def print_state(game_state: gamelib.GameState, _print_function=gamelib.debug_write) -> None:
     gamelib.debug_write(f'My SP/MP {game_state.get_resources(0)} | Enemy SP/MP {game_state.get_resources(1)}')
     print_map(game_state.game_map, _print_function)
 
 
-def print_map(game_map: gamelib.GameMap, _print_function) -> None:
+def print_map(game_map: gamelib.GameMap, _print_function=gamelib.debug_write) -> None:
     for y in reversed(range(game_map.ARENA_SIZE)):
         # s = [str(y if y < game_map.HALF_ARENA else game_map.ARENA_SIZE - y - 1).ljust(3, ' ')]
         s = [str(y).ljust(3, ' ')]

@@ -380,9 +380,9 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
     i = 0
 
     while mobile_units and not evaluation.truncated:
-        gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
-        if i == 0 or i % 5 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
-            dev_helper.print_map(live_map, gamelib.debug_write)
+        # gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
+        # if i == 0 or i % 5 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
+        #     dev_helper.print_map(live_map, gamelib.debug_write)
 
         MobileUnitWrapper.update_paths = False
         run_step(state, live_map, evaluation, mobile_units, structures, scout_calculation_matrix,
