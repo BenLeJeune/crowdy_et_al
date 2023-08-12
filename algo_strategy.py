@@ -385,7 +385,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         turret_location0 = [24,11]
         reinforce_walls = [[0,13],[3,13],[27,13]]
-        turret_location1 = [4, 11]
+        turret_location1 = [4, 12]
         # this turret should be upgraded if the funnel is on the left
 
         if(game_state.attempt_spawn(TURRET,turret_location1) and game_state.get_resource(0,0) <= 6):
