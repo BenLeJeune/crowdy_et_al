@@ -47,8 +47,8 @@ class Preset:
     # walls_to_upgrade = [[8, 12], [2, 4]]
     # walls_to_upgrade_less_important = [[8, 12]]
 
-    right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9], [27, 13]]
-    right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8], [27, 13]]
+    right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9]]
+    right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8]]
 
     @staticmethod
     def get_right_walls(strategy):
@@ -66,13 +66,13 @@ class Preset:
         8: right_cannon_plug,
         7: right_walls_forward,
         6: right_walls_backward,
-        5: initial_walls
+        5: shared_walls
     }
 
 # How sensitive we are to triggering attacks and intercepts
 # Minimum evaluation value - lower is more sensitive
 ATTACK_THRESHOLD = 7
-DEFEND_WITH_INTERCEPTORS_THRESHOLD = 4
+DEFEND_WITH_INTERCEPTORS_THRESHOLD = 6
 
 FUNNEL_LEFT = "funnel_left"
 FUNNEL_RIGHT = "funnel_right"
@@ -80,6 +80,8 @@ SCOUT_GUN_LEFT = "scout_gun_left"
 SCOUT_GUN_RIGHT = "scout_gun_right"
 UNKNOWN = "unknown"
 
+LEFT_FUNNEL_COUNTER = "funnel_counter"
+FRAGILE_FUNNEL_BLOCKADE = "https://terminal.c1games.com/watchLive/12616305"
 
 class AlgoStrategy(gamelib.AlgoCore):
     def __init__(self):
@@ -131,6 +133,9 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # whether or not we're attacking (so we know not to plug the wall)
         self.prepared_to_attack = False
+        # None = not built, False = back, True = forward
+        self.right_layout_forward = None
+        self.left_layout_forward = None
 
     def on_turn(self, turn_state):
         """
@@ -169,6 +174,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         
     on turn 2
         upgrade second funnel turret
+        if we see a left funnel we can skip a wall placement and use it for an interceptor (cool gambit)
     
     if turn between 3-5 and opponent can send 15 scouts
         (simulate)
@@ -201,6 +207,9 @@ class AlgoStrategy(gamelib.AlgoCore):
     
     """
 
+    def sp_current(self, game_state):
+        return game_state.get_resource(SP) - max(0, self.sp_locked)
+
     def strategy(self, game_state):
         """
         Taking inspiration from some effective defences we've seen.
@@ -229,7 +238,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         # on turns past the second turn
         if game_state.turn_number >= 2:
             # amount of sp to save for next turn
-            self.sp_locked = 0
+            # we start at -5 because we gain 5 sp per turn
+            self.sp_locked = -5
 
             # first we build the due support
             # since we don't want holes in our walls
@@ -249,10 +259,10 @@ class AlgoStrategy(gamelib.AlgoCore):
                 game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
 
             # build secondary defences
-            self.build_secondary_defences(game_state)
+            self.sp_locked += self.build_secondary_defences(game_state)
 
             # build tertiary defences
-            self.build_tertiary_defences(game_state)
+            self.sp_locked += self.build_tertiary_defences(game_state)
 
             # starts replacing walls with supports
             self.sp_locked += self.mark_walls_for_support_deletion(game_state)
@@ -261,7 +271,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
             sp_available = game_state.get_resource(SP)
             sp_proportion_allocated = 0.4
-            if not self.support_due is None:
+            if self.support_due is not None:
                 sp_available -= 6
             self.sp_locked += self.schedule_repair_damage(game_state, sp_available * sp_proportion_allocated)
 
@@ -299,26 +309,42 @@ class AlgoStrategy(gamelib.AlgoCore):
     """
     --- DEFENCES ---
     """
-
+    """
     def build_initial_defences(self, game_state):
-        """
-        This is our initial setup
-        """
+        # This is our initial setup
+        # We're not using this
 
         # spawns
         game_state.attempt_spawn(WALL, Preset.initial_walls)
         game_state.attempt_spawn(TURRET, Preset.initial_turret)
         game_state.attempt_upgrade(Preset.initial_turret)
-
+    """
     def build_core_defences(self, game_state):
         # do something based on where we detect the funnel?
 
-        game_state.attempt_build(WALL, Preset.shared_walls)
-        game_state.attempt_build(TURRET, Preset.shared_turret)
+        game_state.attempt_spawn(WALL, Preset.shared_walls)
+        game_state.attempt_spawn(TURRET, Preset.shared_turret)
+        game_state.attempt_upgrade(Preset.shared_turret)
+        game_state.attempt_upgrade(Preset.shared_upgraded_wall)
 
-        # they don't have a funnel on the right, so we build the right more forward
-        right_walls = Preset.get_right_walls(self.strategy)
-        game_state.attempt_build(WALL, right_walls)
+        # if they don't have a funnel on the right, so we build the right more forward to turn into a scout cannon
+        new_right_layout = self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT]
+
+        # todo: potentially stop having the scout cannon if it gets wrecked a lot
+        # = Preset.get_right_walls(self.strategy)
+        if new_right_layout or self.right_layout_forward:
+            if self.right_layout_forward is None:
+                game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+                self.right_layout_forward = True
+            elif self.right_layout_forward is False:
+                game_state.attempt_remove(Preset.right_walls_backward)
+                game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+                self.right_layout_forward = True
+            else:
+                game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+        else:
+            game_state.attempt_spawn(WALL, Preset.right_walls_backward)
+            self.right_layout_forward = False
 
         if self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT]:
             game_state.attempt_build(WALL, Preset.right_cannon_plug)
@@ -329,14 +355,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         Builds secondary defence: Upgrades stick out wall, stacks turrets
         """
         # todo: move to Preset
-        wall_upgrades = [[4,12],[27,13]]
-        turret_locations = [[8, 10], [4, 11]]
-        # this turret should be upgraded if the funnel is on the left
-        turret_location = [4, 11]
-        if self.enemy_strategy[FUNNEL_LEFT]:
-            game_state.attempt_upgrade(turret_location)
-        game_state.attempt_upgrade(wall_upgrades)
-        game_state.attempt_spawn(TURRET, turret_location)
+
+        game_state.attempt_upgrade(reinforce_walls)
+        game_state.attempt_spawn(TURRET, turret_location0)
+
+        return 0
 
     def build_tertiary_defences(self, game_state):
         """
@@ -349,6 +372,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         wall_location = [24, 12]
         game_state.attempt_spawn(WALL, wall_location)
         game_state.attempt_spawn(TURRET, turret_location)
+
+        return 0
 
     def build_quaternary_defences(self, game_state, sp_locked=0):
         """
