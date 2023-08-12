@@ -180,19 +180,18 @@ class AlgoStrategy(gamelib.AlgoCore):
         #                    filename=timing_helper.PROFILING_DIR)
         #     breakpoint()
 
-        pr = profile.Profile()
-        pr.enable()
+        """pr = profile.Profile()
+        pr.enable()"""
 
         self.strategy(game_state)
 
-        pr.disable()
+        """pr.disable()
         s = io.StringIO()
         ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
         ps.print_stats()
 
         with open('_timing_profile_game_r' + str(game_state.turn_number), 'w+') as f:
-            f.write(s.getvalue())
-
+            f.write(s.getvalue())"""
 
         # if vulnerable_to_scout_gun
         # scout_gun_strategy(game_state)
