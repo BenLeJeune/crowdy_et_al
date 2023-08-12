@@ -48,6 +48,9 @@ class Preset:
     right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9]]
     right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8]]
 
+    right_turret_forward = [24, 12]
+    right_turret_backward = [24, 11]
+
     @staticmethod
     def get_right_walls(strategy):
         return Preset.right_walls_forward
@@ -343,13 +346,17 @@ class AlgoStrategy(gamelib.AlgoCore):
                 # we have built the layout at the back but a right cannon would be effective
                 # so we destroy the back layout
                 game_state.attempt_remove(Preset.right_walls_backward)
+                game_state.attempt_remove(Preset.right_turret_backward)
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
                 self.right_layout_forward = True
             else:
                 # building the back
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+                game_state.attempt_spawn(TURRET, Preset.right_turret_forward)
         else:
+            # building the back walls is preferred
             game_state.attempt_spawn(WALL, Preset.right_walls_backward)
+            game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
             self.right_layout_forward = False
 
         if new_right_layout:
@@ -382,8 +389,12 @@ class AlgoStrategy(gamelib.AlgoCore):
         wall_upgrade_locations = [[8, 12], [9, 11]]
         game_state.attempt_spawn(WALL, wall_upgrade_locations)
 
-        turret_location = [24, 11]
-        wall_location = [24, 12]
+        if self.right_layout_forward:
+            game_state.attempt_spawn(TURRET, Preset.right_turret_forward)
+        else:
+            game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
+            turret_location = [24, 11]
+            wall_location = [24, 12]
         game_state.attempt_spawn(WALL, wall_location)
         game_state.attempt_spawn(TURRET, turret_location)
 
