@@ -28,6 +28,7 @@ Advanced strategy tips:
 
 # Some tiles only manipulate enemy direction so are excluded from repairs
 
+
 class Preset:
     # Ben's asymmetric updated defense
     initial_walls = [[0, 13], [27, 13], [1, 12], [2, 12], [3, 12], [4, 12], [8, 12], [26, 12], [7, 11], [25, 11], [7, 10], [24, 10], [8, 9], [23, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8], [21, 8], [22, 8]]
@@ -39,30 +40,39 @@ class Preset:
                     [11, 8], [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8], [20, 8]]
     shared_turret = [[8, 11]]
 
-    # High risk walls will be repaired with the given weights
-    # Will be repaired if health is between 1/n and 1 - 1/n of original.
-    # You can repeat walls in this dictionary - it'll take the first occurence.
-    walls_to_repair_weights = {
-        30: [[8, 12], [4,12]],
-        5: initial_walls
-    }
+    quaternary_turrets = [[3, 12], [4, 11], [8, 10], [9, 10]]
 
-    #Walls that seem to take the bulk of the damage early game and should be upgraded with haste.`
+    # Walls that seem to take the bulk of the damage early game and should be upgraded with haste.
     upgrade_order = [[8,12],[4,12]]
-
     # walls_to_upgrade = [[8, 12], [2, 4]]
     # walls_to_upgrade_less_important = [[8, 12]]
 
+    right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9], [27, 13]]
+    right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8], [27, 13]]
+
     @staticmethod
     def get_right_walls(strategy):
-        right_walls_forward = [[25, 13], [26, 13], [24, 12], [23, 11], [22, 10], [21, 9], [27, 13]]
-        right_walls_backwards = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8], [27, 13]]
-        if strategy is None or not strategy[FUNNEL_RIGHT]:
-            return right_walls_forward
-        else:
-            return right_walls_backwards
+        return Preset.right_walls_forward
+        # if strategy is None or not strategy[FUNNEL_RIGHT]:
+        #     return Preset.right_walls_forward
+        # else:
+        #     return Preset.right_walls_backward
 
+    # High risk walls will be repaired with the given weights, preferentially but not necessarily in order
+    # Will be repaired if health is between 1/n and 1 - 1/n of original.
+    # You can repeat walls in this dictionary - it'll take the first occurrence.
+    walls_to_repair_weights = {
+        30: [[8, 12], [4,12]],
+        8: right_cannon_plug,
+        7: right_walls_forward,
+        6: right_walls_backward,
+        5: initial_walls
+    }
 
+# How sensitive we are to triggering attacks and intercepts
+# Minimum evaluation value - lower is more sensitive
+ATTACK_THRESHOLD = 7
+DEFEND_WITH_INTERCEPTORS_THRESHOLD = 4
 
 FUNNEL_LEFT = "funnel_left"
 FUNNEL_RIGHT = "funnel_right"
@@ -212,7 +222,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             # rebuild anything that's been destroyed
 
             # or we would, but there's no changes
-            self.build_initial_defences(game_state)
+            #self.build_initial_defences(game_state)
+            self.build_core_defences(game_state)
             self.small_scout_attack(game_state)
 
         # on turns past the second turn
@@ -228,14 +239,14 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.execute_repair_damage(game_state)
 
             # rebuild the initial defences that have been destroyed
-            self.build_initial_defences(game_state)
+            #self.build_initial_defences(game_state)
+            self.build_core_defences(game_state)
 
             # unset prepared_to_attack
 
             # if we aren't preparing to attack, we're fine to plug the cannons
             if not self.prepared_to_attack:
                 game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
-
 
             # build secondary defences
             self.build_secondary_defences(game_state)
@@ -265,8 +276,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.build_quaternary_defences(game_state, sp_available)
 
             # predict an enemy attack
-            enemy_attack_predicted = self.predict_enemy_attack(game_state)
-            if enemy_attack_predicted:
+            enemy_attack_value = self.predict_enemy_attack(game_state)
+            if enemy_attack_value is not None and enemy_attack_value >= DEFEND_WITH_INTERCEPTORS_THRESHOLD:
                 self.counter_attack_with_interceptors(game_state)
 
             # determine if we should send a scout attack
@@ -289,9 +300,18 @@ class AlgoStrategy(gamelib.AlgoCore):
     --- DEFENCES ---
     """
 
+    def build_initial_defences(self, game_state):
+        """
+        This is our initial setup
+        """
+
+        # spawns
+        game_state.attempt_spawn(WALL, Preset.initial_walls)
+        game_state.attempt_spawn(TURRET, Preset.initial_turret)
+        game_state.attempt_upgrade(Preset.initial_turret)
+
     def build_core_defences(self, game_state):
         # do something based on where we detect the funnel?
-
 
         game_state.attempt_build(WALL, Preset.shared_walls)
         game_state.attempt_build(TURRET, Preset.shared_turret)
@@ -303,16 +323,6 @@ class AlgoStrategy(gamelib.AlgoCore):
         if self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT]:
             game_state.attempt_build(WALL, Preset.right_cannon_plug)
 
-    def build_initial_defences(self, game_state):
-        """
-        This is our initial setup
-        """
-        # initial setup turrets
-
-        # spawns
-        game_state.attempt_spawn(WALL, Preset.initial_walls)
-        game_state.attempt_spawn(TURRET, Preset.initial_turret)
-        game_state.attempt_upgrade(Preset.initial_turret)
 
     def build_secondary_defences(self, game_state):
         """
@@ -346,12 +356,12 @@ class AlgoStrategy(gamelib.AlgoCore):
         Then, builds a bunch more turrets near the back
         """
 
-        """turret_locations = [[8, 10], [3, 11], [4, 10]]
+        turret_locations = Preset.quaternary_turrets
         for turret_location in turret_locations:
             if self.free_sp(game_state, 4): return
             game_state.attempt_spawn(TURRET, turret_location)
             if self.free_sp(game_state, 6): return
-            game_state.attempt_upgrade(turret_location)"""
+            game_state.attempt_upgrade(turret_location)
         support_locations = [[13, 7], [14, 7]]
         for support_location in support_locations:
             if self.free_sp(game_state, 3): return
@@ -467,7 +477,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         We will predict if the enemy is going to attack.
         todo: later on, remember when the enemy attacks and anticipate?
         """
-        # we simulate the enemy sending 15 scouts
+        # we simulate the enemy sending a bunch of scouts
 
         # todo: get an edge location
         right_edge = game_state.game_map.get_edge_locations(game_state.game_map.TOP_RIGHT)
@@ -475,6 +485,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         edge_locations = [*right_edge, *left_edge]
 
         no_of_scouts = int(game_state.get_resource(MP, 1) // game_state.type_cost(SCOUT)[MP])
+        best_attack = (0, None)
         for scout_location in edge_locations:
             # if the location is full, skip
             if game_state.contains_stationary_unit(scout_location):
@@ -483,24 +494,29 @@ class AlgoStrategy(gamelib.AlgoCore):
             params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 1, no_of_scouts)
             if not params is None:
                 evaluation = sim.simulate(*params)
-                # if it exceeds a (slightly arbitrary) damage threshold, send an interceptor
-                if evaluation.damage_dealt >= 4:
-                    return True
+                # if it exceeds a (slightly arbitrary) threshold, send an interceptor
+                if evaluation.value >= 4 and evaluation.value > best_attack[0]:
+                    best_attack = (evaluation.value, scout_location)
                     # spawns an interceptor at [7, 6]
-        return False
+        if best_attack[1] is not None:
+            return no_of_scouts
+        else:
+            return None
 
     def send_inital_interceptor_covering(self, game_state):
         game_state.attempt_spawn(INTERCEPTOR, [4, 9], 1)
         game_state.attempt_spawn(INTERCEPTOR, [23, 9], 1)
 
-    def counter_attack_with_interceptors(self, game_state):
+    def counter_attack_with_interceptors(self, game_state, count=None):
         """
         We think the enemy is going to attack, so we send out an interceptor to stop it.
         """
-        no_of_interceptors = 1 # todo: make this not always 1
+        # todo: make count and location smart
+        if count is None:
+            count = 1
 
         interceptor_location = [7, 6]
-        game_state.attempt_spawn(INTERCEPTOR, interceptor_location, no_of_interceptors)
+        game_state.attempt_spawn(INTERCEPTOR, interceptor_location, count)
 
     """
     --- POSITION ANALYSIS ---
@@ -659,7 +675,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 if evaluation.value >= best_effort[0]:
                     best_effort = (evaluation.value, scout_location)
             # if the damage of a scout rush would exceed a relatively arbitrary threshold, then we fire one.
-        if best_effort[0] >= 10:
+        if best_effort[0] >= ATTACK_THRESHOLD:
             return True, best_effort[1]
         else:
             gamelib.debug_write(f"Scout rush doesn't look worth it. {evaluation.value}")
@@ -714,7 +730,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
         if not params is None:
             evaluation = sim.simulate(*params)
-            if evaluation.value >= 10:
+            if evaluation.value >= 7:
                 gamelib.debug_write(f"Spawed f{no_of_scouts} scouts")
                 game_state.attempt_spawn(SCOUT, scout_location, no_of_scouts)
             else:
