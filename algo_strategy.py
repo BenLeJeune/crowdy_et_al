@@ -267,7 +267,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         Builds tertiary defence: upgrade walls near funnel turret & wall on left side
         """
         wall_upgrade_locations = [[8, 12], [9, 11]]
-        game_state.attempt(wall_upgrade_locations)
+        game_state.attempt_spawn(wall_upgrade_locations)
 
         turret_location = [24, 11]
         wall_location = [24, 12]
