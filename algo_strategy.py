@@ -463,6 +463,15 @@ class AlgoStrategy(gamelib.AlgoCore):
     #     # we start at 0 and traverse across the board
     #     while x_reached
 
+    def get_crossing_x_val(self, given_path):
+        if len(given_path) < 2:  # nonsense send that self-destructs for no damage
+            return None
+        for location in given_path[2:]:
+            # if it's crossed over to our side (or close enough)
+            if location[1] <= 14:
+                return location[0]
+        return None
+
     def detect_enemy_strategies(self, game_state):
         """
         Detects enemy funnel
@@ -480,15 +489,6 @@ class AlgoStrategy(gamelib.AlgoCore):
         top_left, top_right = game_state.game_map.TOP_LEFT, game_state.game_map.TOP_RIGHT
         bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
 
-        def get_crossing_x_val(given_path):
-            if len(given_path) < 2:  # nonsense send that self-destructs for no damage
-                return None
-            for location in given_path[2:]:
-                # if it's crossed over to our side (or close enough)
-                if location[1] <= 14:
-                    return location[1]
-            return None
-
         # left edges
         left_edges = game_state.game_map.get_edge_locations(top_left)
         right_edges = game_state.game_map.get_edge_locations(top_right)
@@ -504,10 +504,11 @@ class AlgoStrategy(gamelib.AlgoCore):
                     destination = bottom_right
 
                 unit_path = game_state.find_path_to_edge(edge, destination)
-                crossing_x_val = get_crossing_x_val(unit_path)
+                crossing_x_val = self.get_crossing_x_val(unit_path)
                 if crossing_x_val is not None:
                     crossing_x_vals.append(crossing_x_val)
 
+        gamelib.debug_write(str(crossing_x_vals))
         for crossing_x_val in crossing_x_vals:
             if 0 < crossing_x_val <= 3:
                 strategies["scout_gun_left"] = True
