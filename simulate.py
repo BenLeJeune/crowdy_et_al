@@ -62,7 +62,7 @@ def initialise(_globals):
     }
 
 def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: evaluate.Evaluation,
-                       destruct_unit: gamelib.GameUnit, player_index=0):
+                       destruct_unit: gamelib.GameUnit, structures, player_index=0):
     """POTENTIAL CHANGE TO BEHAVIOUR
     we first calculate how many units would need to explode to destroy all the adjacent things
     (but not diagonals! for now.)
@@ -78,8 +78,9 @@ def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, eval
         adj_units.append(live_map[destruct_unit.x - 1, destruct_unit.y])
     if live_map.in_arena_bounds((destruct_unit.x, destruct_unit.y + 1)):
         adj_units.append(live_map[destruct_unit.x, destruct_unit.y + 1])
-    damage_required = max(target.health for target in [*adj_units])
-    units_to_explode = math.floor(damage_required) // 20
+    # damage_required = max(target.health for target in [*adj_units])
+    # units_to_explode = int(math.floor(damage_required) // 20)
+    # above: target is a list?
 
     # todo: as described in docstring above ^^^
 
@@ -91,7 +92,23 @@ def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, eval
                 if target.player_index != player_index:
                     evaluation.damage_dealt += min(target.health, damage)
                     target.health -= damage
+
+    # wrapper = MobileUnitWrapper.by_unit[destruct_unit]
+    #
+    # # possibility - move the rest of the units back 2 squares?
+    # units_in_stack = wrapper.count
+    # units_persisting = max(units_in_stack - units_to_explode, 0)
+    #
+    # # we mark the unit as self destructing if it is fully destroyed
+    # if units_to_explode >= units_in_stack or wrapper.unit.steps_on_path < 5:
     evaluation.self_destruct_order.append(destruct_unit)
+    # indend the line above when un-commenting
+    # if it isn't then we just move it back 2 on its path
+    # elif units_persisting > 0:
+    #     wrapper.unit.x, wrapper.unit.y =  wrapper.target_path[wrapper.steps_on_path - 1]
+    #     wrapper.unit.health = (units_persisting * wrapper.unit.max_health) + MobileUnitWrapper.predict_shielding(live_map, structures)
+
+
 
 
 def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: evaluate.Evaluation, mobile_units,
@@ -123,7 +140,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                     evaluation.points_scored += MobileUnitWrapper.by_unit[unit].count
                     MobileUnitWrapper.by_unit[unit].count = 0
                 elif wrapper.lifetime >= 5:  # Self-destruct if moved at least 5 spaces
-                    unit_self_destruct(state, live_map, evaluation, unit)
+                    unit_self_destruct(state, live_map, evaluation, unit, structures)
 
                 # Not directly stated in the docs but units that have scored or self destructed do not attack
                 # or receive attacks. We do this by killing the unit and setting its damage to 0.
@@ -318,11 +335,11 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
     for unit_type, location, player_index in itertools.zip_longest(unit_types, locations, player_indexes, fillvalue=0):
         initial_map.add_unit(unit_type, location, player_index)
 
-    tile_units = [initial_map[(x, y)] for x in range(initial_map.ARENA_SIZE) for y in range(initial_map.ARENA_SIZE)
-                  if initial_map.in_arena_bounds((x, y))]
-    structures = list(itertools.chain.from_iterable(tile_units))
+    # tile_units = [initial_map[(x, y)] for x in range(initial_map.ARENA_SIZE) for y in range(initial_map.ARENA_SIZE)
+    #               if initial_map.in_arena_bounds((x, y))]
+    # structures = list(itertools.chain.from_iterable(tile_units))
 
-    return state, initial_map, structures
+    return state, initial_map, None
 
 def make_simulation(state: gamelib.GameState, initial_map: gamelib.GameMap, structures,
                     unit_types, locations, player_indexes=0, counts=1, copy_safe=True):
