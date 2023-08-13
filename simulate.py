@@ -168,9 +168,8 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
 
     # the mobile units deal damage to structures and units
     for unit in mobile_units:
-        attack(state,unit,all_units,evaluation)
+        mobile_unit_attack(state, unit, all_units, evaluation)
         # Repeat attacks for each unit in the stack, re-targeting if initial target destroyed
-
 
     # ======== Units that were reduced below 0 health by self destructing or taking damage are removed. ========
     # mark units for deletion: loop through all mobile units and structures
@@ -207,7 +206,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
             MobileUnitWrapper.update_paths = True
             num_deleted += 1
 
-def attack(state, unit, all_units, evaluation):
+def mobile_unit_attack(state, unit, all_units, evaluation):
     target = None
     for i in range(MobileUnitWrapper.by_unit[unit].count):
         if target is None or target.health <= 0:
@@ -407,7 +406,7 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
                  (turret_binary_access_array_0, turret_binary_access_array_1), (heatmap_0, heatmap_1), player_index, i)
         i += 1
 
-    gamelib.debug_write('ran for ' + str(i) + ' iterations')
+    #gamelib.debug_write('ran for ' + str(i) + ' iterations')
     return evaluation
 
 

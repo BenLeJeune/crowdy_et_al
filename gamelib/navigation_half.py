@@ -2,6 +2,8 @@ import heapq
 import math
 import sys
 import queue
+
+import gamelib
 from .util import debug_write
 
 class Node:
@@ -50,14 +52,14 @@ class ShortestPathFinder:
         #Initialize map 
         self.initialized = True
         self.game_state = game_state
-        self.game_map = [[Node() for x in range(self.game_state.ARENA_SIZE)] for y in range(self.game_state.ARENA_SIZE)]
+        self.game_map = [[Node() for x in range(self.game_state.HALF_ARENA)] for y in range(self.game_state.ARENA_SIZE)]
 
-    def navigate_multiple_endpoints(self, start_point, end_points, game_state):
-        """Finds the path a unit would take to reach a set of endpoints
+    def navigate_multiple_endpoints(self, start_point, _, game_state):
+        """Finds the path a unit would take to reach a HORIZONTAL set of endpoints on the opponent's side of the map
 
         Args:
             * start_point: The starting location of the unit
-            * end_points: The end points of the unit, should be a list of edge locations
+            * _: leave None. The end points of the unit, should be a list of edge locations
             * game_state: The current game state
 
         Returns:
@@ -70,14 +72,22 @@ class ShortestPathFinder:
 
         #Initialize map 
         self.initialize_map(game_state)
+        end_points = [[i, 0] for i in range(self.game_state.ARENA_SIZE)]
+        start_point = [start_point[0], start_point[1] - 14]
         #Fill in walls
         for location in self.game_state.game_map:
-            if self.game_state.contains_stationary_unit(location):
-                self.game_map[location[0]][location[1]].blocked = True
+            if location[1] >= 14:
+                if self.game_state.contains_stationary_unit(location):
+                    self.game_map[location[0]][location[1] - 14].blocked = True
         #Do pathfinding
         ideal_endpoints = self._idealness_search(start_point, end_points)
         self._validate(ideal_endpoints, end_points)
         return self._get_path(start_point, end_points)
+
+    def in_arena_half_bounds(self, location):
+        x = location[0]
+        y = location[1] + 14
+        return 13 <= x+y < 42 and -14 <= x-y < 15 and y >= 14
 
     def _idealness_search(self, start, end_points):
         """
@@ -93,10 +103,12 @@ class ShortestPathFinder:
         while not current.empty():
             search_location = current.get()
             for neighbor in self._get_neighbors(search_location):
-                if not self.game_state.game_map.in_arena_bounds(
-                        neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
-                    continue
-
+                #try:
+                if not self.in_arena_half_bounds(neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
+                        continue
+                #except:
+                #    debug_write(str(neighbor) + str(self.in_arena_half_bounds(neighbor)))
+                #    debug_write(str(self.game_map[neighbor[0]]))
                 x, y = neighbor
                 current_idealness = self._get_idealness(neighbor, end_points)
 
@@ -182,8 +194,7 @@ class ShortestPathFinder:
             current_location = current.get()
             current_node = self.game_map[current_location[0]][current_location[1]]
             for neighbor in self._get_neighbors(current_location):
-                if not self.game_state.game_map.in_arena_bounds(
-                        neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
+                if not self.in_arena_half_bounds(neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
                     continue
 
                 neighbor_node = self.game_map[neighbor[0]][neighbor[1]]
@@ -230,7 +241,7 @@ class ShortestPathFinder:
         best_pathlength = self.game_map[current_point[0]][current_point[1]].pathlength
         for neighbor in neighbors:
             #debug_write("Comparing champ {} and contender {}".format(ideal_neighbor, neighbor))
-            if not self.game_state.game_map.in_arena_bounds(neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
+            if not self.in_arena_half_bounds(neighbor) or self.game_map[neighbor[0]][neighbor[1]].blocked:
                 continue
 
             new_best = False
@@ -299,13 +310,16 @@ class ShortestPathFinder:
             debug_write("Attempted to print_map before pathfinder initialization. Use 'this_object.initialize_map(_globals)' to initialize the map first")
             return
 
-        for y in range(28):
+        for y in range(14):
             for x in range(28):
-                node = self.game_map[x][28 - y - 1]
-                if not node.blocked and not node.pathlength == -1:
-                    self._print_justified(node.pathlength)
-                else:
-                    sys.stderr.write("   ")
+                #try:
+                    node = self.game_map[x][14 - y - 1]
+                    if not node.blocked and not node.pathlength == -1:
+                        self._print_justified(node.pathlength)
+                    else:
+                        sys.stderr.write("   ")
+                #except:
+                #    debug_write(f"{y=}")
             debug_write("")
 
     def _print_justified(self, number):

@@ -14,8 +14,8 @@ import dev_helper
 import io
 import pstats
 
-IS_DEV_ENABLED = True
-IS_PROFILER_ENABLED = False
+IS_DEV_ENABLED = False
+IS_PROFILER_ENABLED = True
 
 if IS_PROFILER_ENABLED:
     import cProfile as profile  # if not available, replace with 'import profile'
@@ -96,9 +96,10 @@ FUNNEL_LEFT = "funnel_left"
 FUNNEL_RIGHT = "funnel_right"
 SCOUT_GUN_LEFT = "scout_gun_left"
 SCOUT_GUN_RIGHT = "scout_gun_right"
+FUNNEL_CENTRE = "funnel_center"
 UNKNOWN = "unknown"
 
-LEFT_FUNNEL_COUNTER = "funnel_counter"
+LEFT_FUNNEL_COUNTER = "left_funnel_counter"
 FRAGILE_FUNNEL_BLOCKADE = "https://terminal.c1games.com/watchLive/12616305"
 
 class AlgoStrategy(gamelib.AlgoCore):
@@ -686,7 +687,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             UNKNOWN: False
         }
 
-        # Copy the map to do wall removal tests on it
+        """# Copy the map to do wall removal tests on it
         __map = simulate.copy_internal_map(game_state.game_map)
         predicted_game_map = game_state.game_map
 
@@ -694,7 +695,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         for wall in walls_to_remove:
             predicted_game_map.remove_unit(wall)
 
-        game_state.game_map.set_map_(__map)
+        game_state.game_map.set_map_(__map)"""
 
         # first we simulate a path from the furthest forward left left location
         top_left, top_right = game_state.game_map.TOP_LEFT, game_state.game_map.TOP_RIGHT
@@ -707,31 +708,31 @@ class AlgoStrategy(gamelib.AlgoCore):
         edges = [*left_edges, *right_edges]
         crossing_x_vals = []
 
-        for edge in edges:
-            if not game_state.contains_stationary_unit(edge):
+        for edge_loc in edges:
+            if not game_state.contains_stationary_unit(edge_loc):
                 destination = bottom_left
                 # if this was placed on the left, the destination will be bottom right
-                if edge[0] <= 13:
+                if edge_loc[0] <= 13:
                     destination = bottom_right
 
-                unit_path = game_state.find_path_to_edge(edge, destination)
-                crossing_x_val = self.get_crossing_x_val(unit_path)
-                if crossing_x_val is not None:
-                    crossing_x_vals.append(crossing_x_val)
+                unit_path = game_state.find_path_to_exit_half(edge_loc)
+                if unit_path:
+                # crossing_x_val = self.get_crossing_x_val(unit_path)
+                # if crossing_x_val is not None:
+                    crossing_x_vals.append(unit_path[-1][0])
 
         gamelib.debug_write(str(crossing_x_vals))
         for crossing_x_val in crossing_x_vals:
             if 0 < crossing_x_val <= 3:
                 strategies[SCOUT_GUN_LEFT] = True
-            elif 3 < crossing_x_val <= 13:
+            elif 3 < crossing_x_val <= 10:
                 strategies[FUNNEL_LEFT] = True
-            elif 13 < crossing_x_val <= 23:
+            elif 16 < crossing_x_val <= 23:
                 strategies[FUNNEL_RIGHT] = True
             elif 23 < crossing_x_val <= 27:
                 strategies[SCOUT_GUN_RIGHT] = True
             else:
-                gamelib.debug_write("strange crossing_x_val value")
-                strategies[UNKNOWN] = True
+                strategies[FUNNEL_CENTRE] = True
 
         return strategies
 
@@ -767,10 +768,10 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_left_locations = game_map.get_edge_locations(BOTTOM_LEFT)
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
         
-        # scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        # scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+        scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
+        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
 
-        scout_spawn_locations = [[13, 0], [14, 0]]
+        # scout_spawn_locations = [[13, 0], [14, 0]]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
         funnel_unblocked_best_effort = (0, None)

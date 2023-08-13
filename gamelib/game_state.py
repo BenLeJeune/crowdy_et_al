@@ -2,6 +2,8 @@ import math
 import json
 import sys
 
+from .navigation_half import ShortestPathFinder as HalfPathFinder
+
 from .navigation import ShortestPathFinder
 from .util import send_command, debug_write
 from .unit import GameUnit
@@ -82,7 +84,7 @@ class GameState:
         STRUCTURE_TYPES = [WALL, SUPPORT, TURRET]
 
         self.ARENA_SIZE = 28
-        self.HALF_ARENA = int(self.ARENA_SIZE / 2)
+        self.HALF_ARENA = 14
         self.MP = 1
         self.SP = 0
         global MP, SP
@@ -91,6 +93,7 @@ class GameState:
 
         self.game_map = GameMap(self.config)
         self._shortest_path_finder = ShortestPathFinder()
+        self._half_path_finder = HalfPathFinder()
         self._build_stack = []
         self._deploy_stack = []
         self._player_resources = [
@@ -497,6 +500,13 @@ class GameState:
 
         end_points = self.game_map.get_edge_locations(target_edge)
         return self._shortest_path_finder.navigate_multiple_endpoints(start_location, end_points, self)
+
+    def find_path_to_exit_half(self, start_location):
+        if self.contains_stationary_unit(start_location):
+            self.warn("Attempted to perform pathing from blocked starting location {}".format(start_location))
+            return
+
+        return self._half_path_finder.navigate_multiple_endpoints(start_location, None, self)
 
     def contains_stationary_unit(self, location):
         """Check if a location is blocked, return structures unit if it is
