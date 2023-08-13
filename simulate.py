@@ -63,6 +63,26 @@ def initialise(_globals):
 
 def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: evaluate.Evaluation,
                        destruct_unit: gamelib.GameUnit, player_index=0):
+    """POTENTIAL CHANGE TO BEHAVIOUR
+    we first calculate how many units would need to explode to destroy all the adjacent things
+    (but not diagonals! for now.)
+
+    if there are excess units, we freeze them in place for 2 frames (as if they had been sent behind by 2)
+    which allows them to take/deal damage and make the sim slightly more accurate. they then continue
+    minus the exploded units
+    """
+    adj_units = []
+    if live_map.in_arena_bounds((destruct_unit.x + 1, destruct_unit.y)):
+        adj_units.append(live_map[destruct_unit.x + 1, destruct_unit.y])
+    if live_map.in_arena_bounds((destruct_unit.x - 1, destruct_unit.y)):
+        adj_units.append(live_map[destruct_unit.x - 1, destruct_unit.y])
+    if live_map.in_arena_bounds((destruct_unit.x, destruct_unit.y + 1)):
+        adj_units.append(live_map[destruct_unit.x, destruct_unit.y + 1])
+    damage_required = max(target.health for target in [*adj_units])
+    units_to_explode = math.floor(damage_required) // 20
+
+    # todo: as described in docstring above ^^^
+
     damage = destruct_unit.max_health * MobileUnitWrapper.by_unit[destruct_unit].count
     for i in range(9):
         if live_map.in_arena_bounds(position := (destruct_unit.x + i//3 - 1, destruct_unit.y + i%3 - 1)):

@@ -14,8 +14,8 @@ import dev_helper
 import io
 import pstats
 
-IS_DEV_ENABLED = False
-IS_PROFILER_ENABLED = True
+IS_DEV_ENABLED = True
+IS_PROFILER_ENABLED = False
 
 if IS_PROFILER_ENABLED:
     import cProfile as profile  # if not available, replace with 'import profile'
