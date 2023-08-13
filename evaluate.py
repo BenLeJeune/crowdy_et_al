@@ -10,6 +10,7 @@ class Evaluation:
     damage_dealt = 0  # damage dealt, ignoring overflow!
     points_scored = 0
     truncated = False  # this is true if we stop calculating due to already having calculated this path
+    length = 0  # how long this runs for
     self_destruct_order = []
 
     def __str__(self):

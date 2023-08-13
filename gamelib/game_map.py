@@ -248,3 +248,10 @@ class GameMap:
 
     def set_map_(self, set_map):
         self.__map = set_map
+
+    def flip_map_(self):
+        for i in range(self.ARENA_SIZE):
+            self.__map[i] = list(reversed(self.__map[i]))
+            for tile in self.__map[i]:
+                for unit in tile:
+                    unit.x = 28 - unit.x

@@ -15,6 +15,7 @@ import itertools
 
 
 NONE, HORIZ, VERT, BOTH = [0b00, 0b01, 0b10, 0b11]
+PRINT_MAP_STEPS = False
 
 class MobileUnitWrapper:
     by_unit = {}
@@ -106,9 +107,8 @@ def unit_self_destruct(state: gamelib.GameState, live_map: gamelib.GameMap, eval
     # if it isn't then we just move it back 2 on its path
     # elif units_persisting > 0:
     #     wrapper.unit.x, wrapper.unit.y =  wrapper.target_path[wrapper.steps_on_path - 1]
-    #     wrapper.unit.health = (units_persisting * wrapper.unit.max_health) + MobileUnitWrapper.predict_shielding(live_map, structures)
-
-
+    #     wrapper.unit.health = (units_persisting * wrapper.unit.max_health) + wrapper.shield
+    #     wrapper.unit.steps_on_path = max(0, wrapper.unit.steps_on_path - 2)
 
 
 def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: evaluate.Evaluation, mobile_units,
@@ -174,6 +174,8 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                     raise Exception('Impossible whoopsie with discontinuous simulated scout path:\n'
                                     + str(scout_calculation_matrix))
 
+    # Reset flag
+    MobileUnitWrapper.update_paths = False
 
     # ======== All units attack. See ‘Targeting’ in advanced info ========
     # the mobile units tell the enemy structures which mobile units they have in range
@@ -301,7 +303,8 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
         unit_types - list or single unit type
         locations - list or single location
         player_indexes - (optional) list or integer. If unset or after this list stops short, default to 0 (player 1).
-        remove_locations - (optional) list of locations to remove.
+        remove_locations - (optional) list of locations to remove. If specified, must be a list.
+                           Takes precedence over units added
         copy_safe - (optional) boolean. Set to True to deepcopy.
 
     Returns None if any location is occupied.
@@ -310,30 +313,30 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
         unit_types, locations = [unit_types], [locations]
     if not isinstance(player_indexes, list):
         player_indexes = [player_indexes]
-    if remove_locations and isinstance(remove_locations[0], int):
-        remove_locations = [remove_locations]
     if len(locations) != len(unit_types):
         raise ValueError(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
 
+    overlap_locations = []
     for location in locations:
         # Verify possible locations
         if state.contains_stationary_unit(location):
-            gamelib.debug_write('Warning! Stationary unit overwriting existing unit.')
-            # return None
+            overlap_locations.append(location)
+    if overlap_locations:
+        gamelib.debug_write(f'Warning! Stationary unit overwriting existing units at {overlap_locations}.')
 
     if copy_safe:
         initial_map = copy.deepcopy(state.game_map)
     else:
         initial_map = state.game_map
 
+    # Create additional structures
+    for unit_type, location, player_index in itertools.zip_longest(unit_types, locations, player_indexes, fillvalue=0):
+        initial_map.add_unit(unit_type, location, player_index)
+
     # Remove units (e.g. friendly walls, enemy walls) at specified locations
     if remove_locations is not None:
         for location in remove_locations:
             initial_map.remove_unit(location)
-
-    # Create additional structures
-    for unit_type, location, player_index in itertools.zip_longest(unit_types, locations, player_indexes, fillvalue=0):
-        initial_map.add_unit(unit_type, location, player_index)
 
     # tile_units = [initial_map[(x, y)] for x in range(initial_map.ARENA_SIZE) for y in range(initial_map.ARENA_SIZE)
     #               if initial_map.in_arena_bounds((x, y))]
@@ -388,6 +391,9 @@ to make structure+unit simulations. Deep-copying the game_state is not required.
     else:
         live_map = initial_map
 
+    # gamelib.debug_write('This is the live map that make_simulation will be editing:')
+    # dev_helper.print_map(live_map)
+
     if structures is None or copy_safe:
         tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
                       if live_map.in_arena_bounds((x, y))]
@@ -404,13 +410,15 @@ to make structure+unit simulations. Deep-copying the game_state is not required.
 
 
 def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mobile_units,
-             evaluation_class=evaluate.Evaluation, scout_calculation_matrix=None, player_index=0):
+             evaluation_class=evaluate.Evaluation, scout_calculation_matrix=None, player_index=0, heatmaps=None):
     """Simulate the given state and map.
     Warning: do not modify the state attributes or reassign the game map constants!
 
     Please note if opposing units are simulated (at the same time as friendlies) they will not cause structure damage.
     We can simulate enemy attacks by setting player_index=1.
     """
+    # gamelib.debug_write('Ran a simulation on this map:')
+    # dev_helper.print_map(live_map)
     # if player_index != 0:
     #     raise NotImplementedError('Simulation from player 1 perspective not implemented. Set player_index=0.')
 
@@ -424,26 +432,44 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
     # create an array of the starting turrets for each player.
     # these will be used to map heatmap values to the turrets using binary indexing.
     turret_binary_access_array_0 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
-    # these heatmaps display the turrets attacking any tile from the given player's perspective
-
     turret_binary_access_array_1 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
 
-    heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
-    heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
+    # these heatmaps display the turrets attacking any tile from the given player's perspective
+    if heatmaps is None:
+        heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
+        heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
+    else:
+        heatmap_0, heatmap_1 = heatmaps
 
     i = 0
 
     while mobile_units and not evaluation.truncated:
-        # gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
-        # if i == 0 or i % 5 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
-        #     dev_helper.print_map(live_map, gamelib.debug_write)
+        if PRINT_MAP_STEPS:
+            gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
+            if i == 0 or i % 2 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
+                dev_helper.print_map(live_map, gamelib.debug_write)
 
-        MobileUnitWrapper.update_paths = False
         run_step(state, live_map, evaluation, mobile_units, structures, scout_calculation_matrix,
                  (turret_binary_access_array_0, turret_binary_access_array_1), (heatmap_0, heatmap_1), player_index, i)
         i += 1
 
-    #gamelib.debug_write('ran for ' + str(i) + ' iterations')
+    evaluation.length = i
     return evaluation
 
+def get_heatmaps_and_structures(live_map):
+    tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
+                  if live_map.in_arena_bounds((x, y))]
+    structures = list(itertools.chain.from_iterable(tile_units))
 
+    # we get the turret heatmap to show which locations are in danger of turret fire
+    turret_binary_access_array_0 = tuple(
+        unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
+    # these heatmaps display the turrets attacking any tile from the given player's perspective
+
+    turret_binary_access_array_1 = tuple(
+        unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
+
+    heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
+    heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
+
+    return (heatmap_0, heatmap_1), structures
