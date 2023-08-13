@@ -254,4 +254,4 @@ class GameMap:
             self.__map[i] = list(reversed(self.__map[i]))
             for tile in self.__map[i]:
                 for unit in tile:
-                    unit.x = 28 - unit.x
+                    unit.x = 27 - unit.x
