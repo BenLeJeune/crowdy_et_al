@@ -275,7 +275,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         Taking inspiration from some effective defences we've seen.
         """
-
+        if(self.flip):
+            game_state.game_map.flip_map_()
         # at the start of each turn, predict the strategy.
         self.enemy_strategy = strategy = self.detect_enemy_strategies(game_state)
         gamelib.debug_write(strategy)
@@ -291,7 +292,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             self.flip_detect(game_state)
             # on turn 2, we build defences subtly shifted to counter our opponent
             # rebuild anything that's been destroyed
-
+            if(self.flip):
+                game_state.game_map.flip_map_()
             # or we would, but there's no changes
             #self.build_initial_defences(game_state)
             self.build_core_defences(game_state)
