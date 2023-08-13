@@ -769,7 +769,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
         
         scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
+        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)
+                                 and s[0] % 2 == 0]
 
         # scout_spawn_locations = [[13, 0], [14, 0]]
 
@@ -798,23 +799,26 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         funnel_best_effort = (0, None)
 
-        map_parameters = list(simulate.make_simulation_map(game_state, [WALL for _ in range(len(Preset.right_cannon_funnel_block))],
-                                                           Preset.right_cannon_funnel_block))
-        __map = simulate.copy_internal_map(map_parameters[1])
+        if self.right_layout_forward:
+            map_parameters = list(simulate.make_simulation_map(game_state, [WALL for _ in range(len(Preset.right_cannon_funnel_block))],
+                                                               Preset.right_cannon_funnel_block))
+            __map = simulate.copy_internal_map(map_parameters[1])
 
-        # these are with blocking the funnel
-        for scout_location in scout_spawn_locations:
-            params = simulate.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
-            if not params is None:
-                # gamelib.debug_write(str(params))
-                evaluation = sim.simulate(*params)
-                if evaluation.value >= funnel_best_effort[0]:
-                    funnel_best_effort = (evaluation.value, scout_location)
-            # reset the map for the next simulation
-            map_parameters[1].set_map_(__map)
-            map_parameters[2] = None
+            # these are with blocking the funnel
+            for scout_location in scout_spawn_locations:
+                params = simulate.make_simulation(*map_parameters, SCOUT, scout_location, 0, no_of_scouts, copy_safe=False)
+                if not params is None:
+                    # gamelib.debug_write(str(params))
+                    evaluation = sim.simulate(*params)
+                    if evaluation.value >= funnel_best_effort[0]:
+                        funnel_best_effort = (evaluation.value, scout_location)
+                # reset the map for the next simulation
+                map_parameters[1].set_map_(__map)
+                map_parameters[2] = None
 
-        block_funnel = funnel_best_effort[0] >= funnel_unblocked_best_effort[0]
+        # we require the funnel-blocked aka. scout cannon to be extra effective because
+        # destroying a wall costs some SP.
+        block_funnel = funnel_best_effort[0] > funnel_unblocked_best_effort[0] + 0.5
         # gamelib.debug_write(f"funnel best effort {}")
         best_effort = funnel_best_effort if block_funnel else funnel_unblocked_best_effort
         if best_effort[0] >= ATTACK_THRESHOLD:
@@ -839,9 +843,9 @@ class AlgoStrategy(gamelib.AlgoCore):
         bottom_left_locations = game_map.get_edge_locations(BOTTOM_LEFT)
         bottom_right_locations = game_map.get_edge_locations(BOTTOM_RIGHT)
 
-        # scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
-        # scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)]
-        scout_spawn_locations = [[13, 0], [14, 0]]
+        scout_spawn_locations = [*bottom_left_locations, *bottom_right_locations]
+        scout_spawn_locations = [s for s in scout_spawn_locations if not game_state.contains_stationary_unit(s)
+                                 and s[0] % 2 == 0]
 
         best_run = (0, None)
 
@@ -870,10 +874,6 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         Performs a scout rush using as many scouts as possible
         """
-
-        # bottom_left, bottom_right = game_state.game_map.BOTTOM_LEFT, game_state.game_map.BOTTOM_RIGHT
-        # scout_spawn_locations = [*bottom_left, bottom_right]
-        # scout_spawn_locations = [s for s in scout_spawn_locations if game_state.contains_stationary_unit(s)]
 
         no_of_scouts = game_state.number_affordable(SCOUT)
 
