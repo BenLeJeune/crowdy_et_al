@@ -1,26 +1,27 @@
-import copy
+#import copy
 
 import gamelib
 import random
 import math
-import warnings
+#import warnings
 from sys import maxsize
-import json
+#import json
 import itertools
 import random
 import simulate
 import simulate as sim
 import dev_helper
+import time
 
-IS_DEV_ENABLED = True
+IS_DEV_ENABLED = False
 IS_PROFILER_ENABLED = False
 sim.PRINT_MAP_STEPS = False
 
-if IS_PROFILER_ENABLED:
+"""if IS_PROFILER_ENABLED:
     import cProfile as profile  # if not available, replace with 'import profile'
     import timing_helper
     import io
-    import pstats
+    import pstats"""
 if not IS_DEV_ENABLED:
     dev_helper.print_map = dev_helper.print_state = lambda *args: None  # overwrite test functions
     print = lambda *args, **kwargs: None  # overwrite print as this crashes the engine
@@ -38,6 +39,7 @@ Advanced strategy tips:
   the actual current map states
 """
 
+ATK_FUNNEL, ATK_RIGHT_CANNON, ATK_LEFT_CANNON = range(3)
 # Some tiles only manipulate enemy direction so are excluded from repairs
 
 
@@ -49,13 +51,21 @@ class Preset:
     right_cannon_funnel_unblock = [[6, 11]]
     right_cannon_plug = [26, 13]
 
+    left_cannon_plug = [2,12]
+
     shared_walls = [[27, 13], [0, 13], [4, 13], [8, 12], [1, 12], [2, 12], [3, 12], [7, 11], [7, 10], [8, 9], [9, 8], [10, 7],
                     [11, 7], [12, 7], [13, 7], [14, 7], [15, 7], [16, 7], [17, 7], [18, 7], [19, 7], [20, 8]]
     shared_turret = [[8, 11]]
     shared_upgraded_wall = [[8,12]]
 
-    quaternary_turrets = [[2, 11], [8, 10], [9, 10]]
+    initial_walls = [[0, 13], [4, 13], [1, 12], [2, 12], [3, 12]]
+
+    quaternary_turrets = [[8, 10], [9, 10], [4, 11], [23,12]]
     quaternary_supports = [[13, 6], [14, 6]]
+    quaternary_walls = [[5, 12], [9, 12]]
+
+    special_rule_replace_wall_at = [3, 12]
+    special_rule_add_wall_at = [3, 13]
 
     secondary_turret = [[4, 12]]
     reinforce_walls = [[0, 13], [4, 13], [27, 13]]
@@ -66,7 +76,7 @@ class Preset:
     right_walls_backward = [[26, 12], [25, 11], [24, 10], [23, 9], [21, 8], [22, 8]]
 
     right_turret_forward = [[24, 12]]
-    right_turret_backward = [[24, 11]]
+    right_turret_backward = [[24, 12]]
 
     right_turret_wall_forward = [24, 13]
     right_turret_wall_backward = [24, 12]
@@ -81,13 +91,15 @@ class Preset:
 
     # High risk walls will be repaired with the given weights, preferentially but not necessarily in order
     # Will be repaired if health is between 1/n and 1 - 1/n of original.
-    # You can repeat walls in this dictionary - it'll take the first occurrence.
-    walls_to_repair_weights = {
+    walls_to_repair_weights_critical = {
         31: [[8,12]],
-        30: reinforce_walls,
-        8: right_cannon_plug,
-        7: right_walls_forward,
-        6: right_walls_backward,
+        30: reinforce_walls
+    }
+
+    walls_to_repair_weights = {
+        8: right_walls_forward,
+        7: right_walls_backward,
+        6: right_cannon_plug,
         5: shared_walls
     }
 
@@ -162,6 +174,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         # None = not built, False = back, True = forward
         self.right_layout_forward = None
         self.left_layout_forward = None
+        self.need_sp_to_block_funnel = False
 
     def on_turn(self, turn_state):
         """
@@ -175,8 +188,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         gamelib.debug_write('Performing turn {} of your custom algo strategy'.format(game_state.turn_number))
         game_state.suppress_warnings(True)  # Comment or remove this line to enable warnings.
 
-        if self.flip:
-            game_state.game_map.flip_map_()  # flip horizontally
+        #if self.flip:
+        #    game_state.game_map.flip_map_()  # flip horizontally
 
         dev_helper.print_state(game_state, gamelib.debug_write)
 
@@ -184,16 +197,13 @@ class AlgoStrategy(gamelib.AlgoCore):
         self.enemy_previous_mp = self.enemy_mp
         self.enemy_mp = game_state.get_resource(MP, 1)
 
-        gamelib.debug_write(f"Enemy has been observed to attack on {self.enemy_scout_attack_threshold}")
+        # gamelib.debug_write(f"Enemy has been observed to attack on {self.enemy_scout_attack_threshold}")
 
         # if IS_PROFILER_ENABLED:
         #     profile.runctx('self.strategy(game_state)', globals(), locals(),
         #                    filename=timing_helper.PROFILING_DIR)
         #     breakpoint()
 
-        if IS_PROFILER_ENABLED:
-            pr = profile.Profile()
-            pr.enable()
 
         # Simulation test
         """game_map = game_state.game_map
@@ -204,7 +214,10 @@ class AlgoStrategy(gamelib.AlgoCore):
         gamelib.debug_write(evaluation)
         breakpoint()"""
 
-        self.strategy(game_state)
+        try:
+            self.strategy(game_state)
+        except Exception as err:
+            gamelib.debug_write(f'EXCEPTION !!!!! {str(err)}')
 
         """if IS_PROFILER_ENABLED:
             pr.disable()
@@ -219,8 +232,8 @@ class AlgoStrategy(gamelib.AlgoCore):
         # scout_gun_strategy(game_state)
         gamelib.debug_write(str(self.detect_enemy_strategies(game_state)))
 
-        if self.flip:
-            game_state.game_map.flip_map_()  # flip horizontally
+        #if self.flip:
+        #    game_state.game_map.flip_map_()  # flip horizontally
 
         game_state.submit_turn()
 
@@ -268,15 +281,19 @@ class AlgoStrategy(gamelib.AlgoCore):
     
     """
 
+    def detect_enemy_rebuild(self):
+        pass
+
     def sp_current(self, game_state):
         return game_state.get_resource(SP) - max(0, self.sp_locked)
 
     def strategy(self, game_state):
+        global DEFEND_WITH_INTERCEPTORS_THRESHOLD
         """
         Taking inspiration from some effective defences we've seen.
         """
-        if(self.flip):
-            game_state.game_map.flip_map_()
+        #if(self.flip):
+        #    game_state.game_map.flip_map_()
         # at the start of each turn, predict the strategy.
         self.enemy_strategy = strategy = self.detect_enemy_strategies(game_state)
         gamelib.debug_write(strategy)
@@ -285,17 +302,17 @@ class AlgoStrategy(gamelib.AlgoCore):
         if game_state.turn_number == 0:
             # turn 1 we just send interceptors
             self.send_inital_interceptor_covering(game_state)
+            self.build_initial_defences(game_state)
 
         # on the second turn
         if game_state.turn_number == 1:
 
-            self.flip_detect(game_state)
+            #self.flip_detect(game_state)
             # on turn 2, we build defences subtly shifted to counter our opponent
             # rebuild anything that's been destroyed
-            if(self.flip):
-                game_state.game_map.flip_map_()
+
             # or we would, but there's no changes
-            #self.build_initial_defences(game_state)
+            #
             self.build_core_defences(game_state)
             self.small_scout_attack(game_state)
 
@@ -304,6 +321,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             # amount of sp to save for next turn
             # we start at -5 because we gain 5 sp per turn
             self.sp_locked = -5
+            if self.need_sp_to_block_funnel:
+                game_state._player_resources[0]['SP'] -= 2
 
             # first we build the due support
             # since we don't want holes in our walls
@@ -312,8 +331,14 @@ class AlgoStrategy(gamelib.AlgoCore):
             # THEN rebuild walls that we deleted last turn for repair
             self.execute_repair_damage(game_state)
 
+            if not game_state.game_map[Preset.special_rule_replace_wall_at] and self.enemy_strategy[SCOUT_GUN_LEFT] and (
+                    game_state.get_resource(SP) >= 10 and game_state.turn_number > 4):
+                game_state.attempt_spawn(TURRET, Preset.special_rule_replace_wall_at)
+                game_state.attempt_upgrade(Preset.special_rule_replace_wall_at)
+
             # rebuild the initial defences that have been destroyed
             #self.build_initial_defences(game_state)
+
             self.build_core_defences(game_state)
 
             # if we aren't preparing to attack, we're fine to plug the cannons
@@ -325,6 +350,12 @@ class AlgoStrategy(gamelib.AlgoCore):
             # build secondary defences
             self.sp_locked += self.build_secondary_defences(game_state)
 
+            # schedule critical repairs
+            sp_proportion_allocated = 0.4
+            sp_available = game_state.get_resource(SP)
+            self.sp_locked += self.schedule_repair_damage(game_state, Preset.walls_to_repair_weights_critical,
+                                                          sp_available * sp_proportion_allocated)
+
             # build tertiary defences
             self.sp_locked += self.build_tertiary_defences(game_state)
 
@@ -333,7 +364,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             sp_proportion_allocated = 0.4
             if self.support_due is not None:
                 sp_available -= 6
-            self.sp_locked += self.schedule_repair_damage(game_state, sp_available * sp_proportion_allocated)
+            self.sp_locked += self.schedule_repair_damage(game_state, Preset.walls_to_repair_weights,
+                                                          sp_available * sp_proportion_allocated)
 
             # if we have sufficient SP then walls are marked for removal, to be replaced next turn
             self.sp_locked += self.mark_walls_for_support_deletion(game_state)
@@ -354,44 +386,85 @@ class AlgoStrategy(gamelib.AlgoCore):
             # dev_helper.print_map(game_state.game_map)
 
             # predict an enemy attack
-            # enemy_attack_value = self.predict_enemy_attack(game_state)
-            # if enemy_attack_value is not None and enemy_attack_value >= DEFEND_WITH_INTERCEPTORS_THRESHOLD:
-            #     self.counter_attack_with_interceptors(game_state)
+            enemy_attack_value = self.predict_enemy_attack(game_state)
+            if enemy_attack_value is not None and enemy_attack_value[0] is not None and enemy_attack_value[0] >= DEFEND_WITH_INTERCEPTORS_THRESHOLD:
+                self.counter_attack_with_interceptors(game_state)
+                DEFEND_WITH_INTERCEPTORS_THRESHOLD += 1  # we don't want to do this too often
+            DEFEND_WITH_INTERCEPTORS_THRESHOLD += 0.1
 
             # determine if we should send a scout attack
-            scout_rush_success_value, best_distribution, block_funnel = self.predict_scout_rush_success(game_state)
+            #scout_rush_success_value, best_distribution, block_funnel = self.predict_rush_success(game_state)
 
-            # determine if we should send a demolisher attack
-            demolisher_rush_success_value, d_best_distribution, block_funnel = self.predict_demolisher_rush_success(game_state)
+            if self.need_sp_to_block_funnel:
+                game_state._player_resources[0]['SP'] += 2
+                self.need_sp_to_block_funnel = False
 
-            if demolisher_rush_success_value and demolisher_rush_success_value > max(scout_rush_success_value, ATTACK_THRESHOLD):
-                gamelib.debug_write(f"Doing demolisher rush: {demolisher_rush_success_value}")
-                self.optimise_demolisher_rush(game_state, demolisher_rush_success_value, d_best_distribution)
-            else:
-                gamelib.debug_write(f"Scout rush prediction this turn: {(scout_rush_success_value, best_distribution, block_funnel)}")
-                if scout_rush_success_value and scout_rush_success_value > ATTACK_THRESHOLD:
-                    if block_funnel:
-                        gamelib.debug_write("Attempting scout gun...")
-                        funnel_successfully_blocked = game_state.attempt_spawn(WALL, Preset.right_cannon_funnel_block)
-                        game_state.attempt_remove(Preset.right_cannon_funnel_unblock)
-                        if funnel_successfully_blocked:
-                            gamelib.debug_write("Expect scout rush through the gun :)")
-                            self.scout_rush(game_state, best_distribution)
-                        else:
-                            gamelib.debug_write('Not properly blocked the funnel on the left so not scout rushing.')
-                    else:
-                        gamelib.debug_write("Attempting scout rush through funnel")
-                        self.scout_rush(game_state, best_distribution)
-                    self.prepared_to_attack = False
-                else:
-                    # rebuild the plug
+            attack_value, attack_info, attack_direction = self.predict_rush_success(game_state)
+
+            if attack_value >= ATTACK_THRESHOLD and attack_info is not None:
+                # we want to make an attack
+                # determine the direction for the attack
+                if attack_direction != ATK_FUNNEL:
+                    game_state.attempt_spawn(WALL, Preset.right_cannon_funnel_block)
+                    game_state.attempt_remove(Preset.right_cannon_funnel_unblock)
+                if attack_direction != ATK_LEFT_CANNON:
+                    game_state.attempt_spawn(WALL, Preset.left_cannon_plug)
+                    # game_state.attempt_remove(Preset.left_cannon_plug)
+                if attack_direction != ATK_RIGHT_CANNON:
+                    if self.right_layout_forward:
+                        game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
+                    # game_state.attempt_remove(Preset.right_cannon_plug)
+                
+                # now, we spawn the units we wanted to attack
+                gamelib.debug_write(str(attack_info))
+                units, locations, counts = attack_info
+                for i, unit in enumerate(units):
+                    location = locations[i]
+                    count = counts[i]
+                    game_state.attempt_spawn(unit, location, count)
+
+            if attack_info is None:
+                game_state.attempt_spawn(WALL, Preset.left_cannon_plug)
+                if self.right_layout_forward:
                     game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
 
+            self.build_core_defences(game_state)
+
+            # if demolisher_rush_success_value and demolisher_rush_success_value > max(scout_rush_success_value, ATTACK_THRESHOLD):
+            #     gamelib.debug_write(f"Doing demolisher rush: {demolisher_rush_success_value}")
+            #     self.optimise_demolisher_rush(game_state, demolisher_rush_success_value, d_best_distribution)
+            # else:
+            #     gamelib.debug_write(f"Scout rush prediction this turn: {(scout_rush_success_value, best_distribution, block_funnel)}")
+            #     if scout_rush_success_value and scout_rush_success_value > ATTACK_THRESHOLD:
+            #         if block_funnel == ATK_RIGHT_CANNON:
+            #             gamelib.debug_write("Attempting scout gun...")
+            #             funnel_successfully_blocked = game_state.attempt_spawn(WALL, Preset.right_cannon_funnel_block)
+            #             game_state.attempt_remove(Preset.right_cannon_funnel_unblock)
+            #             if funnel_successfully_blocked:
+            #                 gamelib.debug_write("Expect scout rush through the gun :)")
+            #                 self.scout_rush(game_state, best_distribution)
+            #             else:
+            #                 gamelib.debug_write('Not properly blocked the funnel on the left so not scout rushing.')
+            #         else:
+            #             gamelib.debug_write("Attempting scout rush through funnel")
+            #             self.scout_rush(game_state, best_distribution)
+            #         self.prepared_to_attack = False
+            #     else:
+            #         # rebuild the plug
+            #         game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
+
             # we predict the success of a scout gun rush next turn
-            scout_gun_predicted_value, _ = self.predict_scout_gun_next_turn_success(game_state)
+            scout_gun_predicted_value, _, send_left = self.predict_scout_gun_next_turn_success(game_state)
             if scout_gun_predicted_value >= ATTACK_THRESHOLD:
                 self.prepared_to_attack = True
-                self.prepare_for_scout_gun(game_state, left=False)
+                if not game_state.game_map[Preset.right_cannon_funnel_unblock]:
+                    self.need_sp_to_block_funnel = True
+                if not game_state.game_map[[5, 12]]:
+                    self.need_sp_to_block_funnel = True
+                if send_left == ATK_LEFT_CANNON:
+                    self.prepare_for_scout_gun(game_state, left=True)
+                elif send_left == ATK_RIGHT_CANNON:
+                    self.prepare_for_scout_gun(game_state, left=False)
                 gamelib.debug_write(f"Scout gun worth it {scout_gun_predicted_value}")
             else:
                 gamelib.debug_write(f"Scout gun not worth it, only predicted {scout_gun_predicted_value}")
@@ -475,6 +548,14 @@ class AlgoStrategy(gamelib.AlgoCore):
                     pooledSupportLocations.append(spawnLoc)
             if game_state.get_resource(0, 0) < 3: return
 
+    def build_initial_defences(self, game_state):
+        game_state.attempt_spawn(TURRET, Preset.shared_turret)
+        game_state.attempt_spawn(WALL, Preset.shared_upgraded_wall)
+        game_state.attempt_upgrade(Preset.shared_turret)
+        game_state.attempt_spawn(WALL, Preset.right_turret_wall_backward)
+        game_state.attempt_spawn(TURRET, Preset.right_turret_backward)
+        game_state.attempt_spawn(WALL, Preset.initial_walls)
+
     def build_core_defences(self, game_state):
         # do something based on where we detect the funnel?
 
@@ -487,8 +568,29 @@ class AlgoStrategy(gamelib.AlgoCore):
         # new_right_layout = self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT] and (
         #                    game_state.turn_number > 8 and self.sp_current(game_state) > 6)
 
-        new_right_layout = self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT] or (
-            self.sp_current(game_state) >= 3 and game_state.turn_number >= 3)
+        # our possibilities are:
+        # both sides are poorly defended
+        # both sides are well-defended
+        # one side is more well-defended than the other
+        # here we will compare the two sides to see which is more well defended
+        left = False
+        left_defences = [[3, 16], [4, 16], [2, 15], [3, 15], [4, 15], [0, 14], [1, 14], [2, 14], [3, 14], [4, 14]]
+        right_defences = [[23, 16], [24, 16], [23, 15], [24, 15], [25, 15], [23, 14], [24, 14], [25, 14], [26, 14],
+                          [27, 14]]
+        total_left_defence = [self.unit_defence_value(game_state, game_state.contains_stationary_unit(location))
+                              for location in left_defences]
+        total_right_defence = [self.unit_defence_value(game_state, game_state.contains_stationary_unit(location))
+                               for location in right_defences]
+        left_defence_score = sum(total_left_defence)
+        right_defence_score = sum(total_right_defence)
+        gamelib.debug_write(
+            "Evaluated left defence as " + str(left_defence_score) + " and right as " + str(right_defence_score))
+        # now we check to see which side is less well defended.
+
+        new_right_layout = (self.enemy_strategy is None or not self.enemy_strategy[FUNNEL_RIGHT] or (
+            self.sp_current(game_state) >= 5 and game_state.turn_number >= 4)) and (
+                right_defence_score + 1 < left_defence_score
+        )
 
         # todo: potentially stop having the scout cannon if it gets wrecked a lot
         # = Preset.get_right_walls(self.strategy)
@@ -496,6 +598,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             if self.right_layout_forward is None:
                 # we haven't built any walls but a right cannon would be effective
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+                game_state.attempt_remove(Preset.right_turret_backward)
                 self.right_layout_forward = True
             elif self.right_layout_forward is False:
                 # we have built the layout at the back but a right cannon would be effective
@@ -508,6 +611,9 @@ class AlgoStrategy(gamelib.AlgoCore):
             else:
                 # building the back
                 game_state.attempt_spawn(WALL, Preset.right_walls_forward)
+                if game_state.attempt_spawn(TURRET, Preset.right_turret_forward):
+                    if self.enemy_strategy is None or self.enemy_strategy[SCOUT_GUN_RIGHT]:
+                        game_state.attempt_upgrade(Preset.right_turret_forward)
         else:
             # building the back walls is preferred
             game_state.attempt_spawn(WALL, Preset.right_walls_backward)
@@ -517,13 +623,24 @@ class AlgoStrategy(gamelib.AlgoCore):
         # if new_right_layout:
         #     game_state.attempt_spawn(WALL, Preset.right_cannon_plug)
 
+    def unit_defence_value(self, game_state, unit):
+        try:
+            if not unit: return 0
+            val = 0
+            if unit.unit_type == WALL: val = 1
+            if unit.unit_type == TURRET: val = 3
+            if unit.upgraded: val *= 2.5
+            return val
+        except Exception as e:
+            game_state.warn(e)
+
     def build_secondary_defences(self, game_state):
         """
         Builds secondary defence: Upgrades stick out wall, stacks turrets
         """
         # this turret should be upgraded if the funnel is on the left
 
-        if(game_state.attempt_spawn(TURRET,Preset.secondary_turret) and game_state.get_resource(0,0) <= 6):
+        if (game_state.attempt_spawn(TURRET,Preset.secondary_turret) and game_state.get_resource(0,0) <= 6):
             return 6
 
 
@@ -543,18 +660,23 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         Builds tertiary defence: upgrade walls near funnel turret & wall on right side`
         """
+        if self.enemy_strategy is not None and self.enemy_strategy[FUNNEL_LEFT] and not self.enemy_strategy[FUNNEL_RIGHT] and not self.enemy_strategy[SCOUT_GUN_LEFT]:
+            game_state.attempt_spawn(WALL, Preset.quaternary_walls[0])
 
         if self.right_layout_forward:
             game_state.attempt_upgrade(Preset.right_turret_forward)
             game_state.attempt_spawn(WALL, Preset.right_turret_wall_forward)
-            game_state.attempt_upgrade(Preset.right_turret_wall_forward)
+            if not (game_state.game_map[27,14] or game_state.game_map[26,14] or game_state.game_map[25,14] or game_state.game_map[24,14]):
+                game_state.attempt_upgrade(Preset.right_turret_wall_forward)
+            for wall_location in [[27, 14], [26, 14], [25, 14], [24, 14]]:
+                wall = game_state.contains_stationary_unit(wall_location)
+                if wall:
+                    if wall.pending_removal:
+                        game_state.attempt_upgrade(Preset.right_turret_wall_forward)
         else:
             game_state.attempt_upgrade(Preset.right_turret_backward)
             game_state.attempt_spawn(WALL, Preset.right_turret_wall_backward)
             game_state.attempt_upgrade(Preset.right_turret_wall_backward)
-
-
-
         return 0
 
     def build_quaternary_defences(self, game_state, sp_locked=0):
@@ -563,18 +685,36 @@ class AlgoStrategy(gamelib.AlgoCore):
         Then, builds a bunch more turrets near the back
         """
 
-        turret_locations = Preset.quaternary_turrets
-        for turret_location in Preset.quaternary_turrets:
+        if not self.enemy_strategy[FUNNEL_RIGHT] and not self.enemy_strategy[FUNNEL_RIGHT]:
+            turret_locations = Preset.quaternary_turrets[:-1]
+            if self.free_sp(game_state, 3): return
+            game_state.attempt_spawn(WALL, Preset.special_rule_add_wall_at)
+            game_state.attempt_upgrade(Preset.special_rule_add_wall_at)
+        else:
+            turret_locations = Preset.quaternary_turrets
+            if not self.free_sp(game_state, 2): game_state.attempt_spawn(WALL, Preset.quaternary_walls)
+
+        """if not game_state.game_map[Preset.special_rule_replace_wall_at]:
+            if self.free_sp(game_state, 1): return
+            game_state.attempt_spawn(WALL, Preset.special_rule_add_wall_at)
             if self.free_sp(game_state, 4): return
+            game_state.attempt_spawn(TURRET, Preset.special_rule_replace_wall_at)
+            unit = game_state.game_map[Preset.special_rule_replace_wall_at][0]
+            if unit.unit_type == TURRET and self.free_sp(game_state, 6):
+                game_state.attempt_upgrade(Preset.special_rule_replace_wall_at)"""
+
+        for turret_location in turret_locations:
+            if self.free_sp(game_state, 5): return
             game_state.attempt_spawn(TURRET, turret_location)
             if self.free_sp(game_state, 6): return
             game_state.attempt_upgrade(turret_location)
-        support_locations = [[13, 7], [14, 7]]
+        support_locations = Preset.quaternary_supports
         for support_location in support_locations:
             if self.free_sp(game_state, 3): return
             game_state.attempt_spawn(SUPPORT, support_location)
             if self.free_sp(game_state, 3): return
             game_state.attempt_upgrade(support_location)
+
         """extra_turret_locations = [[24, 17], [23, 18], [20, 18], [22, 18], [19, 19], [22, 19]]
         for extra_turret_location in extra_turret_locations:
             if self.free_sp(game_state, 4): return
@@ -586,14 +726,8 @@ class AlgoStrategy(gamelib.AlgoCore):
     def free_sp(self, game_state, n):
         return game_state.get_resource(SP) < n + self.sp_locked
 
-    def attempt_function_but_take_into_consideration_the_usage_of_structure_points(self, game_state, function, *args):
-        if self.free_sp(game_state, 4):
-            function(*args)
-            return True
-        else:
-            return False
 
-    def schedule_repair_damage(self, game_state: gamelib.GameState, sp_available=0):
+    def schedule_repair_damage(self, game_state: gamelib.GameState, prio_list, sp_available=0):
         """Call this function with the SP to spare for repairs on damaged existing units next turn.
         This will consider the 75% refund!"""
         game_map = game_state.game_map
@@ -613,7 +747,7 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         # loop through structures and decide which order they should be repaired in
         for unit in friendly_structures:
-            for weight, subset in Preset.walls_to_repair_weights.items():
+            for weight, subset in prio_list.items():
                 # We don't want to destroy walls that are too high health (wasteful)
                 # or too low health (they might tank a hit)
                 if unit in subset and unit.max_health < unit.health * weight < unit.max_health * weight - unit.max_health:
@@ -694,9 +828,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         # we simulate the enemy sending a bunch of scouts
 
         # todo: get an edge location
-        right_edge = game_state.game_map.get_edge_locations(game_state.game_map.TOP_RIGHT)
-        left_edge = game_state.game_map.get_edge_locations(game_state.game_map.TOP_LEFT)
-        edge_locations = [*right_edge, *left_edge]
+        edge_locations = [[1, 15], [26, 15], [8, 22], [19, 22]]
 
         no_of_scouts = int(game_state.get_resource(MP, 1) // game_state.type_cost(SCOUT)[MP])
         best_attack = (0, None)
@@ -710,16 +842,15 @@ class AlgoStrategy(gamelib.AlgoCore):
             if not params is None:
                 evaluation = sim.simulate(*params)
                 # if it exceeds a (slightly arbitrary) threshold, send an interceptor
-                if evaluation.value >= 4 and evaluation.value > best_attack[0]:
+                if evaluation.value >= DEFEND_WITH_INTERCEPTORS_THRESHOLD and evaluation.value > best_attack[0]:
                     best_attack = (evaluation.value, scout_location)
-                    # spawns an interceptor at [7, 6]
         if best_attack[1] is not None:
-            return no_of_scouts
+            return best_attack
         else:
             return None
 
     def send_inital_interceptor_covering(self, game_state):
-        game_state.attempt_spawn(INTERCEPTOR, [4, 9], 1)
+        # game_state.attempt_spawn(INTERCEPTOR, [2, 11], 1)
         game_state.attempt_spawn(INTERCEPTOR, [23, 9], 1)
 
     def counter_attack_with_interceptors(self, game_state, count=None):
@@ -732,12 +863,6 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         interceptor_location = [7, 6]
         game_state.attempt_spawn(INTERCEPTOR, interceptor_location, count)
-
-    def simulate_friendly_scouts(self, game_state):
-        """
-        Returns the best position to attack from, the value of that attack,
-        and whether or not the funnel should be closed for it
-        """
 
 
     """
@@ -861,67 +986,121 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         This is called on the first turn to send 5 scouts.
         """
+        scout_location = [21, 7]
+        game_state.attempt_spawn(SCOUT, scout_location, 2)
         scout_location = [20, 6]
         game_state.attempt_spawn(SCOUT, scout_location, 26)
 
-    def predict_scout_rush_success(self, game_state):
+    def predict_rush_success(self, game_state):
         """
+        PREDICT A GENERAL RUSH SUCCESS
         Rewritten to be more clear
         """
-        scout_locations = [[13, 0], [14, 0]]
+        scout_locations = []
         no_of_scouts = game_state.number_affordable(SCOUT)
 
         # these are the possible permutations
         possible_permutations = []
 
         if no_of_scouts > 6:
-            possible_permutations.append([no_of_scouts - 6, 6])
-            possible_permutations.append([6, no_of_scouts - 6])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [no_of_scouts - 6, 6]])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [6, no_of_scouts - 6]])
+            possible_permutations.append([[SCOUT, SCOUT], [[15, 1]], [no_of_scouts]])
+            possible_permutations.append([[SCOUT, SCOUT], [[12, 1]], [no_of_scouts]])
         elif 6 >= no_of_scouts > 2:
-            possible_permutations.append([no_of_scouts - 2, 2])
-            possible_permutations.append([2, no_of_scouts - 2])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [no_of_scouts - 2, 2]])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [2, no_of_scouts - 2]])
+            possible_permutations.append([[SCOUT, SCOUT], [[15, 1]], [no_of_scouts]])
+            possible_permutations.append([[SCOUT, SCOUT], [[12, 1]], [no_of_scouts]])
         else:
             gamelib.debug_write('not enough scouts')
-            return
+
+        heatmaps, _ = sim.get_heatmaps_and_structures(game_state.game_map)
+        # we supply heatmaps to get safe spawn locations only
+        safe_spawn_locations = self.spawn_locations(game_state, heatmaps=heatmaps)
+        no_of_demolishers = game_state.number_affordable(DEMOLISHER)
+
+        for location in safe_spawn_locations:
+            possible_permutations.append([[DEMOLISHER], [location], [no_of_demolishers]])
+
+
+        # here, we have a few possible preset mixed rushes
+        if no_of_demolishers >= 4:
+            mr_demolishers = no_of_demolishers - 1
+            mr_scouts = int(math.floor(game_state.get_resource(MP) - (no_of_demolishers * game_state.type_cost(DEMOLISHER)[MP])))
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[20, 6], [15, 1]], [mr_demolishers, mr_scouts]])
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[7, 6], [12, 1]], [mr_demolishers, mr_scouts]])
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[20, 6], [14, 0]], [mr_demolishers, mr_scouts]])
+
 
         best_effort = (
             0,  # evaluation.value
-            None,   # the distribution of the 2 scouts
-            None    # true if we should block the funnel, false if not
+            None,   # [unit_type_LIST, unit_location_LIST, unit_counts_LIST]
+            None    # ATK_FUNNEL, ATK_RIGHT_CANNON or ATK_LEFT_CANNON
         )
 
+        __map = simulate.copy_internal_map(game_state.game_map)
+
+        # MAP MODIFICATIONS TAKE PLACE HERE
+        map_params = sim.make_simulation_map(game_state, [WALL, WALL],
+                                             [Preset.right_cannon_plug] + [Preset.left_cannon_plug], copy_safe=False)
+        __map_modified = simulate.copy_internal_map(map_params[1])
+
+        gamelib.debug_write(f"Testing the scout gun with a UNBLOCKED funnel but BOTH GUNS BLOCKED")
+        for unit_types, locations, permutation in possible_permutations:
+            gamelib.debug_write("Making simulation under predict_scout_rush_success w/ funnel block")
+            params = sim.make_simulation(*map_params, unit_types, locations, 0, permutation, copy_safe=False)
+            if not params is None:
+                evaluation = sim.simulate(*params)
+                if evaluation.value > best_effort[0]:
+                    gamelib.debug_write(f"A new best attack found - {unit_types} {evaluation.value}")
+                    best_effort = (evaluation.value, (unit_types, locations, permutation), 0)
+                else:
+                    gamelib.debug_write(
+                        f"Previous eval without funnel was better: {best_effort[0]} vs {evaluation.value}")
+
+            # reset the map after the simulation back to the real map + our changes
+            map_params[1].set_map_(__map_modified)
+            __map_modified = simulate.copy_internal_map(map_params[1])
+
+        # reset the map after the simulation back to the real map
+        game_state.game_map.set_map_(__map)
+        """
         # we simulate a rush without blocking the funnel - i.e, the board as is
-        for permutation in possible_permutations:
+        for attack_info in possible_permutations:
+            unit_types, locations, permutation = attack_info
             __map = simulate.copy_internal_map(game_state.game_map)
             gamelib.debug_write("Making simulation under predict scout rush success w/o blocking funnel")
-            params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, SCOUT], scout_locations, 0, permutation, copy_safe=False)
+            params = sim.make_simulation(game_state, game_state.game_map, None, unit_types, locations, 0, permutation, copy_safe=False)
             if not params is None:
                 evaluation = sim.simulate(*params)
                 if evaluation.value >= best_effort[0]:
-                    best_effort = (evaluation.value, permutation, False)
+                    best_effort = (evaluation.value, attack_info, 0)
+                    # todo: MAKE IT SO THIS IS SIMULATED WITH BOTH FUNNELS BLOCKED ^
 
             # reset the map after the simulation back to the real map
             game_state.game_map.set_map_(__map)
 
         __map = simulate.copy_internal_map(game_state.game_map)
-
+        """
         gamelib.debug_write(f"If there isn't a message after this, then self.right_layout_forward is false: {self.right_layout_forward}")
-        # now we simulate the map with the funnel blocked
+
+        # now we simulate the map with the funnel blocked and the right one unblocked
         if self.right_layout_forward:
             gamelib.debug_write("Making simulation map under predict_scout_rush_success")
-            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block],
-                                                 Preset.right_cannon_funnel_block, copy_safe=False)
+            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block] + [WALL],
+                                                 Preset.right_cannon_funnel_block + [Preset.left_cannon_plug], copy_safe=False)
             __map_modified = simulate.copy_internal_map(map_params[1])
 
             gamelib.debug_write(f"Testing the scout gun with a blocked funnel")
-            for permutation in possible_permutations:
+            for unit_types, locations, permutation in possible_permutations:
                 gamelib.debug_write("Making simulation under predict_scout_rush_success w/ funnel block")
-                params = sim.make_simulation(*map_params, [SCOUT, SCOUT], scout_locations, 0, permutation, copy_safe=False)
+                params = sim.make_simulation(*map_params, unit_types, locations, 0, permutation, copy_safe=False)
                 if not params is None:
                     evaluation = sim.simulate(*params)
-                    if evaluation.value >= best_effort[0]:
-                        gamelib.debug_write(f"A new best attack found - with the funnel blocked! {evaluation.value}")
-                        best_effort = (evaluation.value, permutation, True)
+                    if evaluation.value > best_effort[0]:
+                        gamelib.debug_write(f"A new best attack found - {unit_types} {evaluation.value}")
+                        best_effort = (evaluation.value, (unit_types, locations, permutation), ATK_RIGHT_CANNON)
                     else:
                         gamelib.debug_write(f"Previous eval without funnel was better: {best_effort[0]} vs {evaluation.value}")
 
@@ -932,14 +1111,142 @@ class AlgoStrategy(gamelib.AlgoCore):
             # reset the map after the simulation back to the real map
             game_state.game_map.set_map_(__map)
 
+        # now we simulate the map with the funnel blocked and the left one unblocked
+        if self.left_layout_forward:
+            gamelib.debug_write("Making simulation map under predict_scout_rush_success")
+            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block] + [WALL],
+                                                 Preset.right_cannon_funnel_block + [Preset.right_cannon_plug], copy_safe=False)
+            __map_modified = simulate.copy_internal_map(map_params[1])
+
+            gamelib.debug_write(f"Testing the scout gun with a blocked funnel")
+            for unit_types, locations, permutation in possible_permutations:
+                gamelib.debug_write("Making simulation under predict_scout_rush_success w/ funnel block")
+                params = sim.make_simulation(*map_params, unit_types, locations, 0, permutation, copy_safe=False)
+                if not params is None:
+                    evaluation = sim.simulate(*params)
+                    if evaluation.value > best_effort[0]:
+                        gamelib.debug_write(f"A new best attack found - {unit_types} {evaluation.value}")
+                        best_effort = (evaluation.value, (unit_types, locations, permutation), ATK_LEFT_CANNON)
+                    else:
+                        gamelib.debug_write(f"Previous eval without funnel was better: {best_effort[0]} vs {evaluation.value}")
+
+                # reset the map after the simulation back to the real map + our changes
+                map_params[1].set_map_(__map_modified)
+                __map_modified = simulate.copy_internal_map(map_params[1])
+
+            # reset the map after the simulation back to the real map
+            game_state.game_map.set_map_(__map)
+
+
         # we return the best effort
         return best_effort
 
     def predict_scout_gun_next_turn_success(self, game_state):
-        
-        if not self.right_layout_forward:
-            return (0, None)
-        
+        next_turn_mp = game_state.project_future_MP(1)
+        no_of_scouts = int(math.floor(next_turn_mp)) // game_state.type_cost(SCOUT)[MP]
+
+        scout_locations = []
+
+        # these are the possible permutations
+        possible_permutations = []
+
+        if no_of_scouts > 6:
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [no_of_scouts - 6, 6]])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [6, no_of_scouts - 6]])
+            possible_permutations.append([[SCOUT, SCOUT], [[14, 0], [15, 1]], [no_of_scouts - 6, 6]])
+            possible_permutations.append([[SCOUT, SCOUT], [[12, 1], [13, 0]], [6, no_of_scouts - 6]])
+        elif 6 >= no_of_scouts > 2:
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [no_of_scouts - 2, 2]])
+            possible_permutations.append([[SCOUT, SCOUT], [[13, 0], [14, 0]], [2, no_of_scouts - 2]])
+            possible_permutations.append([[SCOUT, SCOUT], [[14, 0], [15, 1]], [no_of_scouts - 2, 2]])
+            possible_permutations.append([[SCOUT, SCOUT], [[12, 1], [13, 0]], [2, no_of_scouts - 2]])
+        else:
+            gamelib.debug_write('not enough scouts')
+
+        heatmaps, _ = sim.get_heatmaps_and_structures(game_state.game_map)
+        # we supply heatmaps to get safe spawn locations only
+        safe_spawn_locations = self.spawn_locations(game_state, heatmaps=heatmaps)
+        no_of_demolishers = int(math.floor(next_turn_mp)) // game_state.type_cost(DEMOLISHER)[MP]
+
+        for location in safe_spawn_locations:
+            possible_permutations.append([[DEMOLISHER], [location], [no_of_demolishers]])
+
+        # here, we have a few possible preset mixed rushes
+        if no_of_demolishers >= 4:
+            mr_demolishers = no_of_demolishers - 1
+            mr_scouts = int(math.floor(game_state.get_resource(MP) - (no_of_demolishers * game_state.type_cost(DEMOLISHER)[MP])))
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[20, 6], [15, 1]], [mr_demolishers, mr_scouts]])
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[7, 6], [12, 1]], [mr_demolishers, mr_scouts]])
+            possible_permutations.append([[DEMOLISHER, SCOUT], [[20, 6], [14, 0]], [mr_demolishers, mr_scouts]])
+
+        best_effort = (
+            0,  # evaluation.value
+            None,   # [unit_type_LIST, unit_location_LIST, unit_counts_LIST]
+            None    # true or1 if we should block the funnel (i.e. go right), false or0 if not (i.e. go centre), 2 to go left
+        )
+
+        __map = simulate.copy_internal_map(game_state.game_map)
+
+        gamelib.debug_write(f"If there isn't a message after this, then self.right_layout_forward is false: {self.right_layout_forward}")
+
+        # now we simulate the map with the funnel blocked
+        if self.right_layout_forward:
+            gamelib.debug_write("Making simulation map under predict_scout_rush_success")
+            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block] + [WALL],
+                                                 Preset.right_cannon_funnel_block + [Preset.left_cannon_plug], copy_safe=False, remove_locations=[[26, 13]])
+            __map_modified = simulate.copy_internal_map(map_params[1])
+
+            gamelib.debug_write(f"Testing the scout gun with a blocked funnel")
+            for unit_types, locations, permutation in possible_permutations:
+                gamelib.debug_write("Making simulation under predict_scout_rush_success w/ funnel block")
+                params = sim.make_simulation(*map_params, unit_types, locations, 0, permutation, copy_safe=False)
+                if not params is None:
+                    evaluation = sim.simulate(*params)
+                    if evaluation.value > best_effort[0]:
+                        gamelib.debug_write(f"A new best attack found - {unit_types} {evaluation.value}")
+                        best_effort = (evaluation.value, (unit_types, locations, permutation), True)
+                    else:
+                        gamelib.debug_write(f"Previous eval without funnel was better: {best_effort[0]} vs {evaluation.value}")
+
+                # reset the map after the simulation back to the real map + our changes
+                map_params[1].set_map_(__map_modified)
+                __map_modified = simulate.copy_internal_map(map_params[1])
+
+            # reset the map after the simulation back to the real map
+            game_state.game_map.set_map_(__map)
+
+        # now we simulate the map with the funnel blocked and the left one unblocked
+        if self.left_layout_forward:
+            gamelib.debug_write("Making simulation map under predict_scout_rush_success")
+            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block] + [WALL],
+                                                 Preset.right_cannon_funnel_block + [Preset.right_cannon_plug], copy_safe=False,
+                                                 remove_locations=Preset.left_cannon_plug)
+            __map_modified = simulate.copy_internal_map(map_params[1])
+
+            gamelib.debug_write(f"Testing the scout gun with a blocked funnel")
+            for unit_types, locations, permutation in possible_permutations:
+                gamelib.debug_write("Making simulation under predict_scout_rush_success w/ funnel block")
+                params = sim.make_simulation(*map_params, unit_types, locations, 0, permutation, copy_safe=False)
+                if not params is None:
+                    evaluation = sim.simulate(*params)
+                    if evaluation.value > best_effort[0]:
+                        gamelib.debug_write(f"A new best attack found - {unit_types} {evaluation.value}")
+                        best_effort = (evaluation.value, (unit_types, locations, permutation), True)
+                    else:
+                        gamelib.debug_write(f"Previous eval without funnel was better: {best_effort[0]} vs {evaluation.value}")
+
+                # reset the map after the simulation back to the real map + our changes
+                map_params[1].set_map_(__map_modified)
+                __map_modified = simulate.copy_internal_map(map_params[1])
+
+            # reset the map after the simulation back to the real map
+            game_state.game_map.set_map_(__map)
+
+
+        # we return the best effort
+        return best_effort
+
+    """def predict_scout_gun_next_turn_success(self, game_state):
         scout_locations = [[13, 0], [14, 0]]
         next_turn_mp = game_state.project_future_MP(1)
         no_of_scouts = int(next_turn_mp // game_state.type_cost(SCOUT)[MP])
@@ -955,16 +1262,19 @@ class AlgoStrategy(gamelib.AlgoCore):
             possible_permutations.append([2, no_of_scouts - 2])
         else:
             gamelib.debug_write('not enough scouts')
-            return (-1, None)
+            return (-1, None, None)
 
         best_effort = (
             0,  # evaluation.value
-            None,  # the distribution of the 2 scouts
+            None,  # the distribution of the 2 scouts,
+            None # This is True if we're sending them left, false if we're sending them right
         )
+
 
         __map = simulate.copy_internal_map(game_state.game_map)
 
         # now we simulate the map with the funnel blocked
+        # these are rushes down the right side
         if self.right_layout_forward:
             gamelib.debug_write('making simulation map - predict_scout_gun_next_turn_success - trying to remove plug and block funnel')
             map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block],
@@ -978,7 +1288,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 if not params is None:
                     evaluation = sim.simulate(*params)
                     if evaluation.value >= best_effort[0]:
-                        best_effort = (evaluation.value, permutation)
+                        best_effort = (evaluation.value, permutation, False)
 
                 # reset the map after the simulation back to the real map + our changes
                 map_params[1].set_map_(__map_modified)
@@ -987,7 +1297,32 @@ class AlgoStrategy(gamelib.AlgoCore):
             # reset the map after the simulation back to the real map
             game_state.game_map.set_map_(__map)
 
-        return best_effort
+        # these are rushes down the left hand side
+        if self.right_layout_forward:
+            gamelib.debug_write(
+                'making simulation map - predict_scout_gun_next_turn_success - trying to remove plug and block funnel')
+            map_params = sim.make_simulation_map(game_state, [WALL for _ in Preset.right_cannon_funnel_block],
+                                                 Preset.right_cannon_funnel_block, copy_safe=False,
+                                                 remove_locations=[[2, 12]])
+            __map_modified = simulate.copy_internal_map(map_params[1])
+
+            for permutation in possible_permutations:
+                gamelib.debug_write("Making simulation under predict_scout_gun_next_turn_success")
+                params = sim.make_simulation(*map_params, [SCOUT, SCOUT], scout_locations, 0, permutation,
+                                             copy_safe=False)
+                if not params is None:
+                    evaluation = sim.simulate(*params)
+                    if evaluation.value >= best_effort[0]:
+                        best_effort = (evaluation.value, permutation, True)
+
+                # reset the map after the simulation back to the real map + our changes
+                map_params[1].set_map_(__map_modified)
+                __map_modified = simulate.copy_internal_map(map_params[1])
+
+            # reset the map after the simulation back to the real map
+            game_state.game_map.set_map_(__map)
+
+        return best_effort"""
 
     def scout_rush(self, game_state, best_distribution):
         """
@@ -995,76 +1330,19 @@ class AlgoStrategy(gamelib.AlgoCore):
         """
         scout_locations = [[13, 0], [14, 0]]
         no_of_scouts = game_state.number_affordable(SCOUT)
-        #
-        # # params = sim.make_simulation(game_state, game_state.game_map, None, [SCOUT, INTERCEPTOR], [scout_location, interceptor_location], [0, 1], no_of_scouts)
-        # # params = sim.make_simulation(game_state, game_state.game_map, None, SCOUT, scout_location, 0, no_of_scouts)
-        # # blocking the funnel
-        # map_parameters = list(simulate.make_simulation_map(game_state, [WALL for _ in range(len(Preset.right_cannon_funnel_block))],
-        #                                                    Preset.right_cannon_funnel_block))
-        # __map = simulate.copy_internal_map(map_parameters[1])
-        # params = simulate.make_simulation(*map_parameters, [SCOUT, SCOUT], [[13, 0], [14, 0]], [0, 0], [no_of_scouts - 6, 6], copy_safe=False)
-        # if not params is None:
-        #     evaluation = sim.simulate(*params)
-        #     if evaluation.value >= 7:
-        #         gamelib.debug_write(f"Spawed f{no_of_scouts} scouts")
-        #         game_state.attempt_spawn(WALL, Preset.right_cannon_funnel_block)
-        #         game_state.attempt_spawn(SCOUT, [13, 0], no_of_scouts - 6)
-        #         game_state.attempt_spawn(SCOUT, [14 ,0], 6)
-        #     else:
-        #         gamelib.debug_write(f"Scout rush wasn't good enough, weird. Only scored {evaluation.value}")
+        
         for i, location in enumerate(scout_locations):
             num_spawned = game_state.attempt_spawn(SCOUT, location, best_distribution[i])
 
     def prepare_for_scout_gun(self, game_state, left):
-        entrance_location = [26, 13]
+        entrance_location = Preset.right_cannon_plug
         if left:
             # we're preparing for a scout gun on the left
-            entrance_location = [3, 11]
+            entrance_location = Preset.left_cannon_plug
+
         game_state.attempt_remove(entrance_location)
         gamelib.debug_write("Preparing for a scout gun")
 
-    def predict_demolisher_rush_success(self, game_state: gamelib.GameState):
-        """Pure demolisher rushes - Test both long and short paths:
-        Funnel
-        Left Cannon
-        Right Cannon
-        """
-        ATK_FUNNEL, ATK_LEFT_CANNON, ATK_RIGHT_CANNON = range(3)
-
-        heatmaps, _ = sim.get_heatmaps_and_structures(game_state.game_map)
-        # we supply heatmaps to get safe spawn locations only
-        safe_spawn_locations = self.spawn_locations(game_state, heatmaps=heatmaps)
-        number_affordable = game_state.number_affordable(DEMOLISHER)
-
-        results = []
-
-        # we simulate a rush without blocking the funnel - i.e, the board as is
-        for location in safe_spawn_locations:
-            __map = simulate.copy_internal_map(game_state.game_map)
-            params = sim.make_simulation(game_state, game_state.game_map, None, DEMOLISHER, location, 0, number_affordable, copy_safe=False)
-            if not params is None:
-                evaluation = sim.simulate(*params)
-                results.append((evaluation, location, ATK_FUNNEL))
-
-            # reset the map after the simulation back to the real map
-            game_state.game_map.set_map_(__map)
-
-        best = max(result[0].value + result[0].length/50 for result in results)
-
-        if best > ATTACK_THRESHOLD:
-            # Prefer longer rushes because enemy interceptors may be destroyed before they get near our demolishers
-            # todo: if their interceptors are far back then demolish forwards
-            ideal_rushes = [result for result in results if result[0].value + result[0].length/50 >= best]
-            evaluation, location, ATK_FUNNEL = random.choice(ideal_rushes)
-            unit_type = DEMOLISHER
-            # Play strategy randomly weighted towards best strategy
-            # choice, evaluation = random.choice([item for item in results.items() if item[1].value > best * 0.9])
-            # unit_type, *location = choice
-            gamelib.debug_write(f'Demolisher Simulator: attack found ({unit_type}) ({location=}) ({evaluation.value=})')
-            return evaluation.value, (location, ATK_FUNNEL), False
-        else:
-            gamelib.debug_write(f'Demolisher Simulator: no rewarding attacks ({best=})')
-            return None, None, None
 
     def optimise_demolisher_rush(self, game_state, demolisher_rush_success_value, d_best_distribution):
         number_affordable = game_state.number_affordable(DEMOLISHER)
@@ -1089,13 +1367,6 @@ class AlgoStrategy(gamelib.AlgoCore):
 
         game_state.attempt_spawn(DEMOLISHER, location, count)
 
-    def test_demolisher_escort_rush_success(self):
-        """What if we use scouts to block damage taken by demolishers?
-        Funnel
-        Left Cannon
-        Right Cannon
-        """
-        pass
 
     def spawn_locations(self, game_state, heatmaps=None, reduce=True):
         """All bottom edge locations that aren't occupied. If heatmaps pair provided, only spawn in safe locations."""
@@ -1112,12 +1383,12 @@ class AlgoStrategy(gamelib.AlgoCore):
             spawn_locations = [s for s in spawn_locations if heatmap_0[s[0]][s[1]] == 0]
 
         if reduce:
-            if reduced_spawn_locations := [s for s in spawn_locations if s[1] == 2 or s[1] == 7]:
+            if reduced_spawn_locations := [s for s in spawn_locations if s[1] not in (1, 2, 3, 4, 5, 6, 8, 10)]:
                 spawn_locations = reduced_spawn_locations
 
         return spawn_locations
 
-
+    '''
     #OUTDATED
     def least_damage_spawn_location(self, game_state, location_options):
         """
@@ -1155,8 +1426,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             if not game_state.contains_stationary_unit(location):
                 filtered.append(location)
         return filtered
-
-
+    """
 
     # OUTDATED
     def on_action_frame(self, turn_string):
@@ -1196,7 +1466,7 @@ class AlgoStrategy(gamelib.AlgoCore):
             enemy_threshold_prediction = int(math.floor(self.enemy_previous_mp)) + 1
 
             # 8 is a relatively arbitrary threshold we've chosen
-            if enemy_scouts_num >= 8:
+            """if enemy_scouts_num >= 8:
                 # the enemy spawned a bunch of scouts
                 # we update our attack threshold
                 # if this is the first attack they've made this game, we set the attack threshold
@@ -1208,7 +1478,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                     self.enemy_scout_attack_threshold = enemy_threshold_prediction
                 # we raise our threshold if they could have attacked last turn, but didn't.
                 elif self.enemy_scout_attack_threshold < enemy_threshold_prediction and self.enemy_previous_mp > self.enemy_scout_attack_threshold:
-                    self.enemy_scout_attack_threshold = enemy_threshold_prediction
+                    self.enemy_scout_attack_threshold = enemy_threshold_prediction"""
 
         for breach in breaches:
             location = breach[0]
@@ -1220,7 +1490,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 self.scored_on_locations.append(location)
                 # gamelib.debug_write("All locations: {}".format(self.scored_on_locations))
             else:
-                self.score_locations.append(location)
+                self.score_locations.append(location)'''
 
 
 if __name__ == "__main__":

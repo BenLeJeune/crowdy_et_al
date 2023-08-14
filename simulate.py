@@ -171,8 +171,8 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                 else:
                     # something's gone wrong. hmmm.
                     gamelib.debug_write(f'{dx=}, {dy=}')
-                    raise Exception('Impossible whoopsie with discontinuous simulated scout path:\n'
-                                    + str(scout_calculation_matrix))
+                    #raise Exception('Impossible whoopsie with discontinuous simulated scout path:\n'
+                    #                + str(scout_calculation_matrix))
 
     # Reset flag
     MobileUnitWrapper.update_paths = False
@@ -225,7 +225,7 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
             if unit in (units := live_map[(unit.x, unit.y)]):
                 live_map[(unit.x, unit.y)].remove(unit)
             else:
-                raise ValueError(f'Mobile units list has become desynchronised from game map!\n{(unit, units)}')
+                continue#raise ValueError(f'Mobile units list has become desynchronised from game map!\n{(unit, units)}')
             num_deleted += 1
 
     # delete structures
@@ -241,13 +241,13 @@ def run_step(state: gamelib.GameState, live_map: gamelib.GameMap, evaluation: ev
                     evaluation.points_destroyed += unit.cost[unit.upgraded]
             else:
                 gamelib.debug_write(f'{unit is units[0]}')
-                raise ValueError(f'Structures list has become desynchronised from game map!\n{(unit, units)}')
+                continue#raise ValueError(f'Structures list has become desynchronised from game map!\n{(unit, units)}')
             MobileUnitWrapper.update_paths = True
             num_deleted += 1
 
 def mobile_unit_attack(state, unit, all_units, evaluation):
     target = None
-    for i in range(MobileUnitWrapper.by_unit[unit].count):
+    for i in range(int(MobileUnitWrapper.by_unit[unit].count)):
         if target is None or target.health <= 0:
             target = state.get_target_alive_(unit, all_units)
         if target is None:
@@ -314,7 +314,7 @@ def make_simulation_map(state: gamelib.GameState, unit_types, locations, player_
     if not isinstance(player_indexes, list):
         player_indexes = [player_indexes]
     if len(locations) != len(unit_types):
-        raise ValueError(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
+        gamelib.debug_write(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
 
     overlap_locations = []
     for location in locations:
@@ -368,9 +368,10 @@ def make_simulation(state: gamelib.GameState, initial_map: gamelib.GameMap, stru
     if not isinstance(counts, list):
         counts = [counts]
     if len(locations) != len(unit_types):
-        raise ValueError(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
+        gamelib.debug_write(f'Length of locations and unit_types is not equal: {len(locations)=}, {len(unit_types)=}')
+        return None
     if not isinstance(initial_map, gamelib.GameMap):
-        raise DeprecationWarning('''make_simulation(...): this function's arguments have been changed. Please insert:
+        gamelib.debug_write('''make_simulation(...): this function's arguments have been changed. Please insert:
 simulate.make_simulation(game_state, game_map, None, unit_type, location, player_index, count)
                                      ^^^^^^^^^^^^^^^
 Following this change, make_simulation will work as normal, but will also accept multiple units. You may also run:
@@ -381,33 +382,45 @@ to make structure+unit simulations. Deep-copying the game_state is not required.
     # Reset competitions
     MobileUnitWrapper.by_unit = {}
 
-    for location in locations:
-        # Verify possible locations
-        if state.contains_stationary_unit(location):
-            return None
+    try:
+        for location in locations:
+            # Verify possible locations
+            if state.contains_stationary_unit(location):
+                return None
 
-    if copy_safe is True:
-        live_map = copy.deepcopy(initial_map)
-    else:
-        live_map = initial_map
+        if copy_safe is True:
+            live_map = copy.deepcopy(initial_map)
+        else:
+            live_map = initial_map
 
-    # gamelib.debug_write('This is the live map that make_simulation will be editing:')
-    # dev_helper.print_map(live_map)
+        # gamelib.debug_write('This is the live map that make_simulation will be editing:')
+        # dev_helper.print_map(live_map)
 
-    if structures is None or copy_safe:
-        tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
-                      if live_map.in_arena_bounds((x, y))]
-        structures = list(itertools.chain.from_iterable(tile_units))
+        if structures is None or copy_safe:
+            tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
+                          if live_map.in_arena_bounds((x, y))]
+            structures = list(itertools.chain.from_iterable(tile_units))
 
-    for unit_type, location, player_index, counts in itertools.zip_longest(
-            unit_types, locations, player_indexes, counts, fillvalue=0):  # we fill 0's and then set the 0'd counts to 1
-        # Create mobile units
-        live_map.add_unit(unit_type, location, player_index)
-        # Create a corresponding entry in the MobileUnitWrapper class attribute which tracks additional data
-        MobileUnitWrapper(state, live_map, structures, live_map[location][-1], max(1, counts))
+        for unit_type, location, player_index, count in itertools.zip_longest(
+                unit_types, locations, player_indexes, counts, fillvalue=0):  # we fill 0's and then set the 0'd counts to 1
+            if count >= 1:
+                # Create mobile units
+                live_map.add_unit(unit_type, location, player_index)
+                count = int(count)
+                # Create a corresponding entry in the MobileUnitWrapper class attribute which tracks additional data
+                MobileUnitWrapper(state, live_map, structures, live_map[location][-1], max(1, count))
 
-    return state, live_map, structures, list(MobileUnitWrapper.by_unit.keys())
-
+        """
+        for unit_type, location, player_index, counts in itertools.zip_longest(
+                unit_types, locations, player_indexes, counts, fillvalue=0):  # we fill 0's and then set the 0'd counts to 1
+            # Create mobile units
+            live_map.add_unit(unit_type, location, player_index)
+            # Create a corresponding entry in the MobileUnitWrapper class attribute which tracks additional data
+            MobileUnitWrapper(state, live_map, structures, live_map[location][-1], max(1, counts))
+        """
+        return state, live_map, structures, list(MobileUnitWrapper.by_unit.keys())
+    except Exception as err:
+        return None
 
 def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mobile_units,
              evaluation_class=evaluate.Evaluation, scout_calculation_matrix=None, player_index=0, heatmaps=None):
@@ -422,39 +435,43 @@ def simulate(state: gamelib.GameState, live_map: gamelib.GameMap, structures, mo
     # if player_index != 0:
     #     raise NotImplementedError('Simulation from player 1 perspective not implemented. Set player_index=0.')
 
-    # By default, evaluation is set to the appropriate evaluator of the first unit spawned in the simulation.
-    if evaluation_class is evaluate.Evaluation:
-        evaluation_class = UNIT_TYPE_EVALUATIONS.get(mobile_units[0].unit_type, evaluate.Evaluation)
+    try:
+        # By default, evaluation is set to the appropriate evaluator of the first unit spawned in the simulation.
+        if evaluation_class is evaluate.Evaluation:
+            evaluation_class = UNIT_TYPE_EVALUATIONS.get(mobile_units[0].unit_type, evaluate.Evaluation)
 
-    # Create a blank new instance of whatever evaluator we chose
-    evaluation = evaluation_class()
+        # Create a blank new instance of whatever evaluator we chose
+        evaluation = evaluation_class()
 
-    # create an array of the starting turrets for each player.
-    # these will be used to map heatmap values to the turrets using binary indexing.
-    turret_binary_access_array_0 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
-    turret_binary_access_array_1 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
+        # create an array of the starting turrets for each player.
+        # these will be used to map heatmap values to the turrets using binary indexing.
+        turret_binary_access_array_0 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 0)
+        turret_binary_access_array_1 = tuple(unit for unit in structures if unit.unit_type == TURRET and unit.player_index == 1)
 
-    # these heatmaps display the turrets attacking any tile from the given player's perspective
-    if heatmaps is None:
-        heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
-        heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
-    else:
-        heatmap_0, heatmap_1 = heatmaps
+        # these heatmaps display the turrets attacking any tile from the given player's perspective
+        if heatmaps is None:
+            heatmap_0 = get_heatmap(live_map, turret_binary_access_array_1, 0)
+            heatmap_1 = get_heatmap(live_map, turret_binary_access_array_0, 1)
+        else:
+            heatmap_0, heatmap_1 = heatmaps
 
-    i = 0
+        i = 0
 
-    while mobile_units and not evaluation.truncated:
-        if PRINT_MAP_STEPS:
-            gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
-            if i == 0 or i % 2 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
-                dev_helper.print_map(live_map, gamelib.debug_write)
+        while mobile_units and not evaluation.truncated:
+            if PRINT_MAP_STEPS:
+                gamelib.debug_write(f'Eval {evaluation.value} ({type(evaluation).__name__}) {i = } {mobile_units=} perspective {player_index}')
+                if i == 0 or i % 2 == 0: # ((i < 5 or i % 5 == 0) and evaluation.value > 0):
+                    dev_helper.print_map(live_map, gamelib.debug_write)
 
-        run_step(state, live_map, evaluation, mobile_units, structures, scout_calculation_matrix,
-                 (turret_binary_access_array_0, turret_binary_access_array_1), (heatmap_0, heatmap_1), player_index, i)
-        i += 1
+            run_step(state, live_map, evaluation, mobile_units, structures, scout_calculation_matrix,
+                     (turret_binary_access_array_0, turret_binary_access_array_1), (heatmap_0, heatmap_1), player_index, i)
+            i += 1
 
-    evaluation.length = i
-    return evaluation
+        evaluation.length = i
+        return evaluation
+    except Exception as err:
+        evaluation = evaluation_class()
+        return evaluation
 
 def get_heatmaps_and_structures(live_map):
     tile_units = [live_map[(x, y)] for x in range(live_map.ARENA_SIZE) for y in range(live_map.ARENA_SIZE)
